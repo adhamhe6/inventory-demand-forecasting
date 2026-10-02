@@ -101,7 +101,7 @@ class PurchasingService:
     @staticmethod
     def to_dict(po: PurchaseOrder) -> dict[str, Any]:
         sku_by_product = {line.product_id: line.product.sku for line in po.lines}
-        lines = [
+        lines: list[dict[str, Any]] = [
             {
                 "id": line.id,
                 "product_id": line.product_id,
@@ -156,7 +156,7 @@ class PurchasingService:
             "allowed_transitions": allowed_transitions(po.status),
         }
 
-    async def list(
+    async def list_orders(
         self,
         page: PageParams,
         *,
@@ -180,7 +180,7 @@ class PurchasingService:
             .group_by(PurchaseOrderLine.purchase_order_id)
             .subquery()
         )
-        stmt: Select[Any] = (
+        stmt: Select = (
             select(
                 PurchaseOrder,
                 Supplier.name.label("supplier_name"),

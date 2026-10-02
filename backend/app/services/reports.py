@@ -240,15 +240,16 @@ class ReportService:
         if warehouse_id:
             cur_stmt = cur_stmt.where(InventoryItem.warehouse_id == warehouse_id)
             delta_stmt = delta_stmt.where(InventoryTransaction.warehouse_id == warehouse_id)
-        units, value = (await self.session.execute(cur_stmt)).one()
-        units, value = float(units), float(value)
+        row = (await self.session.execute(cur_stmt)).one()
+        units: float = float(row[0])
+        value: float = float(row[1])
         deltas = {
             r[0]: (float(r[1] or 0), float(r[2] or 0)) for r in (await self.session.execute(delta_stmt)).all()
         }
         out = []
         d = today
         while d >= start:
-            out.append({"date": d.isoformat(), "units": int(round(units)), "value": round(value, 2)})
+            out.append({"date": d.isoformat(), "units": round(units), "value": round(value, 2)})
             du, dv = deltas.get(d, (0.0, 0.0))
             units, value = units - du, value - dv
             d -= timedelta(days=1)
@@ -510,9 +511,9 @@ class ReportService:
                     "id": r[0],
                     "po_number": r[1],
                     "supplier_name": r[2],
-                    "expected_delivery_date": r[3].isoformat(),
+                    "expected_delivery_date": r[3].isoformat() if r[3] else None,
                     "status": r[4].value,
-                    "days_overdue": (today - r[3]).days,
+                    "days_overdue": (today - r[3]).days if r[3] else None,
                 }
                 for r in overdue
             ],

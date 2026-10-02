@@ -54,11 +54,11 @@ OPENAPI_TAGS = [
 ]
 
 
-def error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
-    return {
-        "error": {"code": code, "message": message, "details": details},
-        "request_id": request_id_ctx.get(),
-    }
+def error_body(
+    code: str, message: str, details: Any = None, request: Request | None = None
+) -> dict[str, Any]:
+    rid = request_id_ctx.get() or (getattr(request.state, "request_id", None) if request else None)
+    return {"error": {"code": code, "message": message, "details": details}, "request_id": rid}
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -115,7 +115,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
         # Runs outside the request middleware, so the request id comes from request.state.
         logger.exception(
-            "unhandled exception", exc_info=exc, extra={"request_id": getattr(request.state, "request_id", None)}
+            "unhandled exception",
+            exc_info=exc,
+            extra={"request_id": getattr(request.state, "request_id", None)},
         )
         message = f"{type(exc).__name__}: {exc}" if get_settings().debug else "An unexpected error occurred"
         return JSONResponse(error_body("INTERNAL_ERROR", message, request=request), status_code=500)

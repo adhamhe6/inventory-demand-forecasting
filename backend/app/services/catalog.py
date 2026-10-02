@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import Select, and_, case, exists, func, or_, select
+from sqlalchemy import Select, and_, case, delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -79,7 +79,7 @@ class CatalogService:
     async def list_suppliers(
         self, page: PageParams, *, search: str | None, status: EntityStatus | None, sort: str | None
     ) -> tuple[list[Supplier], int]:
-        stmt: Select[Any] = select(Supplier)
+        stmt: Select = select(Supplier)
         if search:
             stmt = stmt.where(_ilike_any(search, Supplier.name, Supplier.contact_name, Supplier.email))
         if status:
@@ -184,7 +184,7 @@ class CatalogService:
     async def list_warehouses(
         self, page: PageParams, *, search: str | None, status: EntityStatus | None, sort: str | None
     ) -> tuple[list[Warehouse], int]:
-        stmt: Select[Any] = select(Warehouse)
+        stmt: Select = select(Warehouse)
         if search:
             stmt = stmt.where(_ilike_any(search, Warehouse.name, Warehouse.code, Warehouse.location))
         if status:
@@ -282,7 +282,7 @@ class CatalogService:
         is_active: bool | None,
         sort: str | None,
     ) -> tuple[list[Product], int]:
-        stmt: Select[Any] = select(Product).options(selectinload(Product.supplier))
+        stmt: Select = select(Product).options(selectinload(Product.supplier))
         if search:
             stmt = stmt.where(_ilike_any(search, Product.sku, Product.name, Product.category))
         if category:
@@ -362,9 +362,7 @@ class CatalogService:
                 "Product has stock, sales or purchase history and cannot be deleted; deactivate it instead",
                 code="PRODUCT_IN_USE",
             )
-        await self.session.execute(
-            InventoryItem.__table__.delete().where(InventoryItem.product_id == product_id)
-        )
+        await self.session.execute(delete(InventoryItem).where(InventoryItem.product_id == product_id))
         await self.session.delete(product)
         await self._commit(CacheDomain.INVENTORY, CacheDomain.FORECASTS)
         logger.info("product deleted", extra={"product_id": product_id})

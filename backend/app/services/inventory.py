@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Select, case, func, or_, select
+from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +49,7 @@ STATUS_EXPR = case(
 )
 
 
-def inventory_select() -> Select[Any]:
+def inventory_select() -> Select:
     return (
         select(
             InventoryItem,
@@ -122,7 +122,7 @@ class InventoryService:
         if category:
             stmt = stmt.where(Product.category == category)
         if status:
-            stmt = stmt.where(status.value == STATUS_EXPR)
+            stmt = stmt.where(STATUS_EXPR.in_([status.value]))
         if statuses:
             stmt = stmt.where(STATUS_EXPR.in_([s.value for s in statuses]))
         if search:
@@ -263,22 +263,30 @@ class InventoryService:
         }
 
     # ------------------------------------------------------------------ primitives
+    async def ensure_items(self, keys: Sequence[tuple[int, int]]) -> None:
+        """Create missing inventory rows without taking row locks (ON CONFLICT DO NOTHING)."""
+        await self.session.execute(
+            pg_insert(InventoryItem)
+            .values(
+                [
+                    {"product_id": p, "warehouse_id": w, "quantity_on_hand": 0, "reserved_quantity": 0}
+                    for p, w in keys
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["product_id", "warehouse_id"])
+        )
+
     async def lock_items(
         self, keys: Sequence[tuple[int, int]], *, create: bool
     ) -> dict[tuple[int, int], InventoryItem]:
-        """Lock (and optionally create) inventory rows for (product_id, warehouse_id) pairs."""
+        """Lock (and optionally create) inventory rows for (product_id, warehouse_id) pairs.
+
+        All rows are locked in ONE statement ordered by id, so two transactions locking
+        overlapping sets always acquire locks in the same order and cannot deadlock.
+        """
         if create:
-            await self.session.execute(
-                pg_insert(InventoryItem)
-                .values(
-                    [
-                        {"product_id": p, "warehouse_id": w, "quantity_on_hand": 0, "reserved_quantity": 0}
-                        for p, w in keys
-                    ]
-                )
-                .on_conflict_do_nothing(index_elements=["product_id", "warehouse_id"])
-            )
-        conditions = [(InventoryItem.product_id == p) & (InventoryItem.warehouse_id == w) for p, w in keys]
+            await self.ensure_items(keys)
+        conditions = [and_(InventoryItem.product_id == p, InventoryItem.warehouse_id == w) for p, w in keys]
         items = (
             await self.session.scalars(
                 select(InventoryItem)
@@ -348,11 +356,10 @@ class InventoryService:
         self, items: Sequence[InventoryItem], txs: Sequence[InventoryTransaction]
     ) -> dict[str, Any]:
         await self.session.flush()
-        result = {
+        return {
             "items": await self._items_by_ids([i.id for i in items]),
             "transactions": [self._tx_dict(t) for t in txs],
         }
-        return result
 
     async def after_commit(self) -> None:
         await self.cache.invalidate(CacheDomain.INVENTORY)
@@ -555,8 +562,8 @@ class InventoryService:
     ) -> dict[str, Any]:
         await self.catalog.ensure_active(product_id, from_warehouse_id)
         await self.catalog.ensure_active(product_id, to_warehouse_id)
-        # Make sure the destination row exists, then lock both rows in id order.
-        await self.lock_items([(product_id, to_warehouse_id)], create=True)
+        # Make sure the destination row exists (no lock), then lock both rows in id order.
+        await self.ensure_items([(product_id, to_warehouse_id)])
         items = await self.lock_items(
             [(product_id, from_warehouse_id), (product_id, to_warehouse_id)], create=False
         )

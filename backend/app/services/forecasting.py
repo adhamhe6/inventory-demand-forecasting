@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import Select, delete, func, select, union
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
@@ -276,7 +277,7 @@ class ForecastService:
         sort: str | None,
     ) -> tuple[list[dict[str, Any]], int]:
         latest = latest_runs_subquery()
-        stmt: Select[Any] = (
+        stmt: Select = (
             select(ForecastRun)
             .join(latest, latest.c.id == ForecastRun.id)
             .join(Product, Product.id == ForecastRun.product_id)
@@ -311,4 +312,7 @@ class ForecastService:
     async def history_points(self, product_id: int, warehouse_id: int, days: int) -> list[dict[str, Any]]:
         start, end, obs = await self.history(product_id, warehouse_id, days)
         series = build_daily_series(obs, start, end)
-        return [{"date": ts.date(), "quantity": float(v)} for ts, v in series.items()]
+        index = pd.DatetimeIndex(series.index)
+        return [
+            {"date": ts.date(), "quantity": float(v)} for ts, v in zip(index, series.to_numpy(), strict=True)
+        ]

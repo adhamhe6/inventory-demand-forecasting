@@ -48,7 +48,7 @@ logger = logging.getLogger("seed")
 
 HISTORY_DAYS = 365
 DEMO_PASSWORD = "DemoPass123!"  # documented demo-only credentials (seeded only on request)
-WEEKDAY = {
+WEEKDAY: dict[str, list[float]] = {
     "flat": [1, 1, 1, 1, 1, 1, 1],
     "office": [1.25, 1.2, 1.15, 1.1, 1.0, 0.35, 0.25],
     "retail": [0.85, 0.85, 0.9, 0.95, 1.1, 1.35, 1.1],
@@ -62,13 +62,76 @@ WAREHOUSES = [
 
 SUPPLIERS = [
     # name, contact, email, phone, terms, lead, reliability (sd of delay days), status
-    ("Northwind Electronics", "Dana Fischer", "orders@northwind-elec.example", "+1 312 555 0101", "Net 30", 10, 2, "ACTIVE"),
-    ("Summit Office Supply", "Raj Patel", "sales@summitoffice.example", "+1 214 555 0144", "Net 15", 5, 1, "ACTIVE"),
-    ("Harbor Home Goods", "Mei Lin", "trade@harborhome.example", "+1 213 555 0190", "Net 45", 14, 5, "ACTIVE"),
-    ("Ironclad Tools", "Marcus Webb", "b2b@ironcladtools.example", "+1 773 555 0122", "Net 30", 21, 3, "ACTIVE"),
-    ("CareWell Distributors", "Sofia Alvarez", "supply@carewell.example", "+1 469 555 0177", "Net 30", 7, 1, "ACTIVE"),
-    ("PackRight Packaging", "Tom Okafor", "orders@packright.example", "+1 312 555 0166", "Net 10", 3, 1, "ACTIVE"),
-    ("Legacy Imports Ltd", "Ann Moore", "info@legacyimports.example", "+1 555 555 0100", "Prepaid", 45, 7, "INACTIVE"),
+    (
+        "Northwind Electronics",
+        "Dana Fischer",
+        "orders@northwind-elec.example",
+        "+1 312 555 0101",
+        "Net 30",
+        10,
+        2,
+        "ACTIVE",
+    ),
+    (
+        "Summit Office Supply",
+        "Raj Patel",
+        "sales@summitoffice.example",
+        "+1 214 555 0144",
+        "Net 15",
+        5,
+        1,
+        "ACTIVE",
+    ),
+    (
+        "Harbor Home Goods",
+        "Mei Lin",
+        "trade@harborhome.example",
+        "+1 213 555 0190",
+        "Net 45",
+        14,
+        5,
+        "ACTIVE",
+    ),
+    (
+        "Ironclad Tools",
+        "Marcus Webb",
+        "b2b@ironcladtools.example",
+        "+1 773 555 0122",
+        "Net 30",
+        21,
+        3,
+        "ACTIVE",
+    ),
+    (
+        "CareWell Distributors",
+        "Sofia Alvarez",
+        "supply@carewell.example",
+        "+1 469 555 0177",
+        "Net 30",
+        7,
+        1,
+        "ACTIVE",
+    ),
+    (
+        "PackRight Packaging",
+        "Tom Okafor",
+        "orders@packright.example",
+        "+1 312 555 0166",
+        "Net 10",
+        3,
+        1,
+        "ACTIVE",
+    ),
+    (
+        "Legacy Imports Ltd",
+        "Ann Moore",
+        "info@legacyimports.example",
+        "+1 555 555 0100",
+        "Prepaid",
+        45,
+        7,
+        "INACTIVE",
+    ),
 ]
 
 ALL = ("WH-NORTH", "WH-SOUTH", "WH-WEST")
@@ -95,36 +158,381 @@ class ProductSpec:
 
 
 PRODUCTS = [
-    ProductSpec("ELEC-USBC-1M", "USB-C Cable 1m", "Electronics", "pcs", 2.10, 9.99, "Northwind Electronics", 18, "retail"),
-    ProductSpec("ELEC-HDMI-2M", "HDMI 2.1 Cable 2m", "Electronics", "pcs", 3.40, 12.99, "Northwind Electronics", 9, "retail", scenario="outstanding_po"),
-    ProductSpec("ELEC-PWR-65W", "65W USB-C GaN Charger", "Electronics", "pcs", 11.50, 34.99, "Northwind Electronics", 5, "retail", trend=1.4, scenario="growing"),
-    ProductSpec("ELEC-MOUSE-WL", "Wireless Optical Mouse", "Electronics", "pcs", 6.80, 24.99, "Northwind Electronics", 6, "retail"),
-    ProductSpec("ELEC-KB-MECH", "Mechanical Keyboard TKL", "Electronics", "pcs", 32.00, 89.00, "Northwind Electronics", 2, "retail", warehouses=("WH-NORTH", "WH-WEST")),
-    ProductSpec("ELEC-HUB-7P", "7-Port USB 3.0 Hub", "Electronics", "pcs", 9.20, 29.99, "Northwind Electronics", 3.5, "retail", trend=0.5, scenario="shortage"),
-    ProductSpec("ELEC-EARBUD-PRO", "Wireless Earbuds Pro", "Electronics", "pcs", 22.00, 69.99, "Northwind Electronics", 6, "retail", trend=0.6, history_days=28, scenario="new", warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("OFF-PAPER-A4", "Copy Paper A4 (500 sheets)", "Office Supplies", "ream", 3.10, 7.49, "Summit Office Supply", 25, "office", warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("OFF-PEN-BLK", "Ballpoint Pens Black (12)", "Office Supplies", "box", 1.20, 4.99, "Summit Office Supply", 14, "office", warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("OFF-NOTE-A5", "Hardcover Notebook A5", "Office Supplies", "pcs", 1.80, 5.99, "Summit Office Supply", 8, "office", trend=0.8, scenario="below_rop", warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("OFF-STAPLER", "Heavy Duty Stapler", "Office Supplies", "pcs", 4.50, 12.99, "Summit Office Supply", 1.6, "office", intermittent=0.35, warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("OFF-TONER-HP", "Toner Cartridge 26A", "Office Supplies", "pcs", 38.00, 89.99, "Summit Office Supply", 1.4, "office", intermittent=0.3, warehouses=("WH-NORTH",)),
-    ProductSpec("OFF-FAX-ROLL", "Thermal Fax Paper Roll", "Office Supplies", "roll", 1.10, 3.99, "Legacy Imports Ltd", 0, scenario="inactive", warehouses=("WH-NORTH",), active=False),
-    ProductSpec("HOME-MUG-CER", "Ceramic Coffee Mug 350ml", "Home & Kitchen", "pcs", 2.20, 8.99, "Harbor Home Goods", 8, "retail", warehouses=("WH-SOUTH", "WH-WEST")),
-    ProductSpec("HOME-BOTTLE-SS", "Insulated Steel Bottle 750ml", "Home & Kitchen", "pcs", 5.10, 19.99, "Harbor Home Goods", 7, "retail", trend=1.0, scenario="growing", warehouses=("WH-SOUTH", "WH-WEST")),
-    ProductSpec("HOME-TOWEL-SET", "Cotton Towel Set (4)", "Home & Kitchen", "set", 9.80, 29.99, "Harbor Home Goods", 3, "retail", warehouses=("WH-SOUTH", "WH-WEST")),
-    ProductSpec("HOME-KNIFE-CH", "Chef Knife 8in", "Home & Kitchen", "pcs", 14.00, 49.00, "Harbor Home Goods", 1.8, "retail", scenario="out_of_stock", warehouses=("WH-SOUTH", "WH-WEST")),
-    ProductSpec("TOOL-DRILL-18V", "Cordless Drill 18V", "Tools & Hardware", "pcs", 48.00, 129.00, "Ironclad Tools", 1.3, "retail", warehouses=("WH-NORTH", "WH-WEST")),
-    ProductSpec("TOOL-BITS-SET", "Drill Bit Set (29pc)", "Tools & Hardware", "set", 7.50, 24.99, "Ironclad Tools", 3, "retail", scenario="below_rop", warehouses=("WH-NORTH", "WH-WEST")),
-    ProductSpec("TOOL-TAPE-5M", "Tape Measure 5m", "Tools & Hardware", "pcs", 3.20, 11.99, "Ironclad Tools", 5, "retail", warehouses=("WH-NORTH", "WH-WEST")),
-    ProductSpec("TOOL-GLOVES", "Work Gloves (pair)", "Tools & Hardware", "pair", 1.90, 7.99, "Ironclad Tools", 12, "office", scenario="outstanding_po", warehouses=("WH-NORTH", "WH-WEST")),
-    ProductSpec("TOOL-SPARE-BELT", "Sander Replacement Belt", "Tools & Hardware", "pcs", 6.00, 19.99, "Ironclad Tools", 1.2, intermittent=0.18, warehouses=("WH-NORTH",)),
-    ProductSpec("HLTH-SANIT-500", "Hand Sanitizer 500ml", "Health & Personal Care", "bottle", 1.60, 5.49, "CareWell Distributors", 22, "flat", trend=-0.45),
-    ProductSpec("HLTH-MASK-50", "Disposable Face Masks (50)", "Health & Personal Care", "box", 3.90, 12.99, "CareWell Distributors", 6, intermittent=0.45),
-    ProductSpec("HLTH-VITC-100", "Vitamin C 1000mg (100)", "Health & Personal Care", "bottle", 4.40, 14.99, "CareWell Distributors", 5, "retail", trend=0.9, scenario="shortage"),
-    ProductSpec("HLTH-THERM", "Digital Thermometer", "Health & Personal Care", "pcs", 6.50, 19.99, "CareWell Distributors", 1.2, "flat"),
-    ProductSpec("PKG-BOX-M", "Shipping Box Medium", "Packaging", "pcs", 0.45, 1.99, "PackRight Packaging", 60, "office", warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("PKG-TAPE-48", "Packing Tape 48mm", "Packaging", "roll", 0.90, 3.49, "PackRight Packaging", 30, "office", warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("PKG-BUBBLE-50", "Bubble Wrap Roll 50m", "Packaging", "roll", 6.20, 18.99, "PackRight Packaging", 4, "office", scenario="overstock", warehouses=("WH-NORTH", "WH-SOUTH")),
-    ProductSpec("PKG-LABEL-4X6", "Thermal Labels 4x6 (500)", "Packaging", "roll", 8.10, 22.99, "PackRight Packaging", 5, "office", trend=0.7, scenario="shortage", warehouses=("WH-NORTH", "WH-SOUTH")),
+    ProductSpec(
+        "ELEC-USBC-1M",
+        "USB-C Cable 1m",
+        "Electronics",
+        "pcs",
+        2.10,
+        9.99,
+        "Northwind Electronics",
+        18,
+        "retail",
+    ),
+    ProductSpec(
+        "ELEC-HDMI-2M",
+        "HDMI 2.1 Cable 2m",
+        "Electronics",
+        "pcs",
+        3.40,
+        12.99,
+        "Northwind Electronics",
+        9,
+        "retail",
+        scenario="outstanding_po",
+    ),
+    ProductSpec(
+        "ELEC-PWR-65W",
+        "65W USB-C GaN Charger",
+        "Electronics",
+        "pcs",
+        11.50,
+        34.99,
+        "Northwind Electronics",
+        5,
+        "retail",
+        trend=1.4,
+        scenario="growing",
+    ),
+    ProductSpec(
+        "ELEC-MOUSE-WL",
+        "Wireless Optical Mouse",
+        "Electronics",
+        "pcs",
+        6.80,
+        24.99,
+        "Northwind Electronics",
+        6,
+        "retail",
+    ),
+    ProductSpec(
+        "ELEC-KB-MECH",
+        "Mechanical Keyboard TKL",
+        "Electronics",
+        "pcs",
+        32.00,
+        89.00,
+        "Northwind Electronics",
+        2,
+        "retail",
+        warehouses=("WH-NORTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "ELEC-HUB-7P",
+        "7-Port USB 3.0 Hub",
+        "Electronics",
+        "pcs",
+        9.20,
+        29.99,
+        "Northwind Electronics",
+        3.5,
+        "retail",
+        trend=0.5,
+        scenario="shortage",
+    ),
+    ProductSpec(
+        "ELEC-EARBUD-PRO",
+        "Wireless Earbuds Pro",
+        "Electronics",
+        "pcs",
+        22.00,
+        69.99,
+        "Northwind Electronics",
+        6,
+        "retail",
+        trend=0.6,
+        history_days=28,
+        scenario="new",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "OFF-PAPER-A4",
+        "Copy Paper A4 (500 sheets)",
+        "Office Supplies",
+        "ream",
+        3.10,
+        7.49,
+        "Summit Office Supply",
+        25,
+        "office",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "OFF-PEN-BLK",
+        "Ballpoint Pens Black (12)",
+        "Office Supplies",
+        "box",
+        1.20,
+        4.99,
+        "Summit Office Supply",
+        14,
+        "office",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "OFF-NOTE-A5",
+        "Hardcover Notebook A5",
+        "Office Supplies",
+        "pcs",
+        1.80,
+        5.99,
+        "Summit Office Supply",
+        8,
+        "office",
+        trend=0.8,
+        scenario="below_rop",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "OFF-STAPLER",
+        "Heavy Duty Stapler",
+        "Office Supplies",
+        "pcs",
+        4.50,
+        12.99,
+        "Summit Office Supply",
+        1.6,
+        "office",
+        intermittent=0.35,
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "OFF-TONER-HP",
+        "Toner Cartridge 26A",
+        "Office Supplies",
+        "pcs",
+        38.00,
+        89.99,
+        "Summit Office Supply",
+        1.4,
+        "office",
+        intermittent=0.3,
+        warehouses=("WH-NORTH",),
+    ),
+    ProductSpec(
+        "OFF-FAX-ROLL",
+        "Thermal Fax Paper Roll",
+        "Office Supplies",
+        "roll",
+        1.10,
+        3.99,
+        "Legacy Imports Ltd",
+        0,
+        scenario="inactive",
+        warehouses=("WH-NORTH",),
+        active=False,
+    ),
+    ProductSpec(
+        "HOME-MUG-CER",
+        "Ceramic Coffee Mug 350ml",
+        "Home & Kitchen",
+        "pcs",
+        2.20,
+        8.99,
+        "Harbor Home Goods",
+        8,
+        "retail",
+        warehouses=("WH-SOUTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "HOME-BOTTLE-SS",
+        "Insulated Steel Bottle 750ml",
+        "Home & Kitchen",
+        "pcs",
+        5.10,
+        19.99,
+        "Harbor Home Goods",
+        7,
+        "retail",
+        trend=1.0,
+        scenario="growing",
+        warehouses=("WH-SOUTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "HOME-TOWEL-SET",
+        "Cotton Towel Set (4)",
+        "Home & Kitchen",
+        "set",
+        9.80,
+        29.99,
+        "Harbor Home Goods",
+        3,
+        "retail",
+        warehouses=("WH-SOUTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "HOME-KNIFE-CH",
+        "Chef Knife 8in",
+        "Home & Kitchen",
+        "pcs",
+        14.00,
+        49.00,
+        "Harbor Home Goods",
+        1.8,
+        "retail",
+        scenario="out_of_stock",
+        warehouses=("WH-SOUTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "TOOL-DRILL-18V",
+        "Cordless Drill 18V",
+        "Tools & Hardware",
+        "pcs",
+        48.00,
+        129.00,
+        "Ironclad Tools",
+        1.3,
+        "retail",
+        warehouses=("WH-NORTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "TOOL-BITS-SET",
+        "Drill Bit Set (29pc)",
+        "Tools & Hardware",
+        "set",
+        7.50,
+        24.99,
+        "Ironclad Tools",
+        3,
+        "retail",
+        scenario="below_rop",
+        warehouses=("WH-NORTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "TOOL-TAPE-5M",
+        "Tape Measure 5m",
+        "Tools & Hardware",
+        "pcs",
+        3.20,
+        11.99,
+        "Ironclad Tools",
+        5,
+        "retail",
+        warehouses=("WH-NORTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "TOOL-GLOVES",
+        "Work Gloves (pair)",
+        "Tools & Hardware",
+        "pair",
+        1.90,
+        7.99,
+        "Ironclad Tools",
+        12,
+        "office",
+        scenario="outstanding_po",
+        warehouses=("WH-NORTH", "WH-WEST"),
+    ),
+    ProductSpec(
+        "TOOL-SPARE-BELT",
+        "Sander Replacement Belt",
+        "Tools & Hardware",
+        "pcs",
+        6.00,
+        19.99,
+        "Ironclad Tools",
+        1.2,
+        intermittent=0.18,
+        warehouses=("WH-NORTH",),
+    ),
+    ProductSpec(
+        "HLTH-SANIT-500",
+        "Hand Sanitizer 500ml",
+        "Health & Personal Care",
+        "bottle",
+        1.60,
+        5.49,
+        "CareWell Distributors",
+        22,
+        "flat",
+        trend=-0.45,
+    ),
+    ProductSpec(
+        "HLTH-MASK-50",
+        "Disposable Face Masks (50)",
+        "Health & Personal Care",
+        "box",
+        3.90,
+        12.99,
+        "CareWell Distributors",
+        6,
+        intermittent=0.45,
+    ),
+    ProductSpec(
+        "HLTH-VITC-100",
+        "Vitamin C 1000mg (100)",
+        "Health & Personal Care",
+        "bottle",
+        4.40,
+        14.99,
+        "CareWell Distributors",
+        5,
+        "retail",
+        trend=0.9,
+        scenario="shortage",
+    ),
+    ProductSpec(
+        "HLTH-THERM",
+        "Digital Thermometer",
+        "Health & Personal Care",
+        "pcs",
+        6.50,
+        19.99,
+        "CareWell Distributors",
+        1.2,
+        "flat",
+    ),
+    ProductSpec(
+        "PKG-BOX-M",
+        "Shipping Box Medium",
+        "Packaging",
+        "pcs",
+        0.45,
+        1.99,
+        "PackRight Packaging",
+        60,
+        "office",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "PKG-TAPE-48",
+        "Packing Tape 48mm",
+        "Packaging",
+        "roll",
+        0.90,
+        3.49,
+        "PackRight Packaging",
+        30,
+        "office",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "PKG-BUBBLE-50",
+        "Bubble Wrap Roll 50m",
+        "Packaging",
+        "roll",
+        6.20,
+        18.99,
+        "PackRight Packaging",
+        4,
+        "office",
+        scenario="overstock",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
+    ProductSpec(
+        "PKG-LABEL-4X6",
+        "Thermal Labels 4x6 (500)",
+        "Packaging",
+        "roll",
+        8.10,
+        22.99,
+        "PackRight Packaging",
+        5,
+        "office",
+        trend=0.7,
+        scenario="shortage",
+        warehouses=("WH-NORTH", "WH-SOUTH"),
+    ),
 ]
 
 
@@ -158,27 +566,71 @@ class Writer:
         self._ref += 1
         return f"{prefix}-{self._ref}"
 
-    def ledger(self, s: Series, kind: str, qty: int, on_delta: int, res_delta: int, at: datetime,
-               reference: str | None, note: str | None, actor: int | None, group: Any = None) -> None:
+    def ledger(
+        self,
+        s: Series,
+        kind: str,
+        qty: int,
+        on_delta: int,
+        res_delta: int,
+        at: datetime,
+        reference: str | None,
+        note: str | None,
+        actor: int | None,
+        group: Any = None,
+    ) -> None:
         s.stock += on_delta
         s.reserved += res_delta
-        assert s.stock >= 0 and 0 <= s.reserved <= s.stock, (s.spec.sku, kind)
-        self.tx.append((s.product_id, s.warehouse_id, kind, qty, on_delta, res_delta, s.stock, s.reserved,
-                        reference, note, group, actor, at))
+        if s.stock < 0 or not 0 <= s.reserved <= s.stock:
+            raise RuntimeError(f"simulation produced invalid stock for {s.spec.sku} ({kind})")
+        self.tx.append(
+            (
+                s.product_id,
+                s.warehouse_id,
+                kind,
+                qty,
+                on_delta,
+                res_delta,
+                s.stock,
+                s.reserved,
+                reference,
+                note,
+                group,
+                actor,
+                at,
+            )
+        )
 
 
 def demand_rate(spec: ProductSpec, scale: float, day_index: int, d: date) -> float:
     progress = day_index / HISTORY_DAYS
     trend = max(0.05, 1 + spec.trend * progress)
     weekly = WEEKDAY[spec.weekly][d.weekday()]
-    yearly = 1 + (0.15 * math.sin(2 * math.pi * (d.timetuple().tm_yday - 100) / 365) if spec.category == "Home & Kitchen" else 0)
+    yearly = 1 + (
+        0.15 * math.sin(2 * math.pi * (d.timetuple().tm_yday - 100) / 365)
+        if spec.category == "Home & Kitchen"
+        else 0
+    )
     return spec.base * scale * trend * weekly * yearly
 
 
 async def _reset(session: Any) -> None:
-    tables = ["forecast_points", "forecast_runs", "jobs", "idempotency_records", "purchase_order_receipt_lines",
-              "purchase_order_receipts", "purchase_order_lines", "purchase_orders", "inventory_transactions",
-              "inventory_items", "sales", "products", "suppliers", "warehouses"]
+    tables = [
+        "forecast_points",
+        "forecast_runs",
+        "jobs",
+        "idempotency_records",
+        "purchase_order_receipt_lines",
+        "purchase_order_receipts",
+        "purchase_order_lines",
+        "purchase_orders",
+        "inventory_transactions",
+        "inventory_items",
+        "sales",
+        "products",
+        "suppliers",
+        "warehouses",
+    ]
     await session.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
     await session.execute(text("DELETE FROM users WHERE email LIKE '%@demo.example'"))
     await session.commit()
@@ -219,7 +671,9 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
         wh_scale: dict[str, float] = {}
         for code, name, loc, scale in WAREHOUSES:
             wh_ids[code] = await session.scalar(
-                text("INSERT INTO warehouses (code, name, location, status) VALUES (:c, :n, :l, 'ACTIVE') RETURNING id"),
+                text(
+                    "INSERT INTO warehouses (code, name, location, status) VALUES (:c, :n, :l, 'ACTIVE') RETURNING id"
+                ),
                 {"c": code, "n": name, "l": loc},
             )
             wh_scale[code] = scale
@@ -227,10 +681,20 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
         sup_meta: dict[str, tuple[int, float]] = {}
         for name, contact, email, phone, terms, lead, sd, status in SUPPLIERS:
             sup_ids[name] = await session.scalar(
-                text("INSERT INTO suppliers (name, contact_name, email, phone, address, payment_terms, lead_time_days, status) "
-                     "VALUES (:n, :c, :e, :p, :a, :t, :l, :s) RETURNING id"),
-                {"n": name, "c": contact, "e": email, "p": phone, "a": f"{rnd.randint(10, 999)} Commerce Way",
-                 "t": terms, "l": lead, "s": status},
+                text(
+                    "INSERT INTO suppliers (name, contact_name, email, phone, address, payment_terms, lead_time_days, status) "
+                    "VALUES (:n, :c, :e, :p, :a, :t, :l, :s) RETURNING id"
+                ),
+                {
+                    "n": name,
+                    "c": contact,
+                    "e": email,
+                    "p": phone,
+                    "a": f"{rnd.randint(10, 999)} Commerce Way",
+                    "t": terms,
+                    "l": lead,
+                    "s": status,
+                },
             )
             sup_meta[name] = (lead, sd)
 
@@ -242,42 +706,89 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
             ss = math.ceil(1.65 * math.sqrt(max(daily, 0.1) * lead)) if daily else 0
             rop = math.ceil(daily * lead) + ss
             prod_ids[spec.sku] = await session.scalar(
-                text("INSERT INTO products (sku, name, description, category, unit, cost, price, min_stock, reorder_point, "
-                     "safety_stock, lead_time_days, is_active, supplier_id) VALUES (:sku, :name, :d, :cat, :unit, :cost, "
-                     ":price, :min, :rop, :ss, :lead, :active, :sup) RETURNING id"),
-                {"sku": spec.sku, "name": spec.name, "d": spec.description or f"{spec.name} – {spec.category}",
-                 "cat": spec.category, "unit": spec.unit, "cost": Decimal(str(spec.cost)), "price": Decimal(str(spec.price)),
-                 "min": ss, "rop": rop, "ss": ss, "lead": lead, "active": spec.active, "sup": sup_ids[spec.supplier]},
+                text(
+                    "INSERT INTO products (sku, name, description, category, unit, cost, price, min_stock, reorder_point, "
+                    "safety_stock, lead_time_days, is_active, supplier_id) VALUES (:sku, :name, :d, :cat, :unit, :cost, "
+                    ":price, :min, :rop, :ss, :lead, :active, :sup) RETURNING id"
+                ),
+                {
+                    "sku": spec.sku,
+                    "name": spec.name,
+                    "d": spec.description or f"{spec.name} – {spec.category}",
+                    "cat": spec.category,
+                    "unit": spec.unit,
+                    "cost": Decimal(str(spec.cost)),
+                    "price": Decimal(str(spec.price)),
+                    "min": ss,
+                    "rop": rop,
+                    "ss": ss,
+                    "lead": lead,
+                    "active": spec.active,
+                    "sup": sup_ids[spec.supplier],
+                },
             )
             for code in spec.warehouses:
-                series.append(Series(spec, prod_ids[spec.sku], wh_ids[code], code, sup_ids[spec.supplier], lead,
-                                     sup_meta[spec.supplier][1], wh_scale[code]))
+                series.append(
+                    Series(
+                        spec,
+                        prod_ids[spec.sku],
+                        wh_ids[code],
+                        code,
+                        sup_ids[spec.supplier],
+                        lead,
+                        sup_meta[spec.supplier][1],
+                        wh_scale[code],
+                    )
+                )
         await session.commit()
 
     # -------------------------------------------------------------------- simulation
     w = Writer()
-    arrivals: dict[date, list[tuple[Series, int, int, int]]] = defaultdict(list)  # day -> (series, qty, po, line)
+    arrivals: dict[date, list[tuple[Series, int, int, int]]] = defaultdict(
+        list
+    )  # day -> (series, qty, po, line)
     po_lines: dict[int, list[dict[str, Any]]] = defaultdict(list)
     po_id = 0
     line_id = 0
     for s in series:
         s.reorder_enabled = s.spec.active
-        hold_days = {"shortage": 40, "below_rop": 30, "out_of_stock": 45, "outstanding_po": 30}.get(s.spec.scenario, 0)
+        hold_days = {"shortage": 40, "below_rop": 30, "out_of_stock": 45, "outstanding_po": 30}.get(
+            s.spec.scenario, 0
+        )
         s.__dict__["hold_from"] = HISTORY_DAYS - hold_days if hold_days else HISTORY_DAYS + 1
 
     def opening(s: Series, day_i: int, d: date) -> None:
         rate = demand_rate(s.spec, s.scale, day_i, d) or 1
-        qty = max(10, math.ceil(rate * (s.lead + 21)))
-        w.ledger(s, "ADJUSTMENT", qty, qty, 0, datetime.combine(d, time(7, 0), tzinfo=UTC),
-                 "OPENING-BALANCE", "Opening balance", actor_ids[0])
+        # Random initial cover staggers reorder cycles so items don't all reorder in lockstep.
+        qty = max(10, math.ceil(rate * (s.lead + rnd.randint(8, 50))))
+        w.ledger(
+            s,
+            "ADJUSTMENT",
+            qty,
+            qty,
+            0,
+            datetime.combine(d, time(7, 0), tzinfo=UTC),
+            "OPENING-BALANCE",
+            "Opening balance",
+            actor_ids[0],
+        )
 
     for day_i in range(HISTORY_DAYS):
         d = start_day + timedelta(days=day_i)
         # 1. deliveries
         for s, qty, pid, lid in arrivals.pop(d, []):
             s.on_order -= qty
-            w.ledger(s, "PURCHASE_RECEIPT", qty, qty, 0, datetime.combine(d, time(8, rnd.randint(0, 59)), tzinfo=UTC),
-                     f"PO#{pid}", "Receipt", wh_actor)
+            w.ledger(
+                s,
+                "PURCHASE_RECEIPT",
+                qty,
+                qty,
+                0,
+                datetime.combine(d, time(8, rnd.randint(0, 59)), tzinfo=UTC),
+                f"PO#{pid}",
+                "Receipt",
+                wh_actor,
+            )
             for ln in po_lines[pid]:
                 if ln["id"] == lid:
                     ln["received"] += qty
@@ -294,7 +805,11 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
                 opening(s, day_i, d)
             rate = demand_rate(s.spec, s.scale, day_i, d)
             if s.spec.intermittent:
-                qty_demand = int(nprng.geometric(1 / max(rate / s.spec.intermittent, 1.01))) if rnd.random() < s.spec.intermittent else 0
+                qty_demand = (
+                    int(nprng.geometric(1 / max(rate / s.spec.intermittent, 1.01)))
+                    if rnd.random() < s.spec.intermittent
+                    else 0
+                )
             else:
                 qty_demand = int(nprng.poisson(rate))
             s.demand_log.append(qty_demand)
@@ -313,33 +828,51 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
             # 3. replenishment policy (trailing-average reorder point, ~30-day order cycle)
             recent = s.demand_log[-28:]
             est = (sum(recent) / len(recent)) if recent else rate
-            ss = 1.65 * math.sqrt(max(est, 0.1) * s.lead)
+            ss_est = 1.65 * math.sqrt(max(est, 0.1) * s.lead)
             position = s.stock - s.reserved + s.on_order
             if s.reorder_enabled and day_i == s.__dict__["hold_from"]:
                 # Scenario items stop reordering for the final weeks. One last order sized to
                 # cover the hold keeps demand history uncensored (no artificial stock-outs).
-                cover = est * (HISTORY_DAYS - day_i + s.lead + 5) + ss
+                cover = est * (HISTORY_DAYS - day_i + s.lead + 5) + ss_est
                 if cover > position:
-                    reorders[(s.supplier_id, s.warehouse_id)].append((s, max(5, int(math.ceil((cover - position) / 5) * 5))))
+                    reorders[(s.supplier_id, s.warehouse_id)].append(
+                        (s, max(5, int(math.ceil((cover - position) / 5) * 5)))
+                    )
             elif s.reorder_enabled and day_i < s.__dict__["hold_from"]:
-                rop = est * s.lead + ss
-                if position <= rop:
-                    target = rop + est * 45
-                    qty = max(5, int(math.ceil((target - position) / 5) * 5))
+                rop_est = est * s.lead + ss_est
+                if position <= rop_est:
+                    order_to = rop_est + est * 45
+                    qty = max(5, int(math.ceil((order_to - position) / 5) * 5))
                     reorders[(s.supplier_id, s.warehouse_id)].append((s, qty))
         for (sup_id, wid), items in reorders.items():
             po_id += 1
             lead = items[0][0].lead
-            delay = int(round(abs(nprng.normal(0, items[0][0].delay_sd)))) if items[0][0].delay_sd else 0
+            delay = round(abs(nprng.normal(0, items[0][0].delay_sd))) if items[0][0].delay_sd else 0
             if rnd.random() < 0.3:
                 delay = -min(delay, 1)
             arrive = d + timedelta(days=max(1, lead + delay))
-            w.pos.append({"id": po_id, "supplier_id": sup_id, "warehouse_id": wid, "order_date": d,
-                          "expected": d + timedelta(days=lead), "arrive": arrive})
+            w.pos.append(
+                {
+                    "id": po_id,
+                    "supplier_id": sup_id,
+                    "warehouse_id": wid,
+                    "order_date": d,
+                    "expected": d + timedelta(days=lead),
+                    "arrive": arrive,
+                }
+            )
             for s, qty in items:
                 line_id += 1
-                po_lines[po_id].append({"id": line_id, "product_id": s.product_id, "qty": qty, "received": 0,
-                                        "cost": Decimal(str(s.spec.cost)), "received_on": None})
+                po_lines[po_id].append(
+                    {
+                        "id": line_id,
+                        "product_id": s.product_id,
+                        "qty": qty,
+                        "received": 0,
+                        "cost": Decimal(str(s.spec.cost)),
+                        "received_on": None,
+                    }
+                )
                 s.on_order += qty
                 arrivals[arrive].append((s, qty, po_id, line_id))
 
@@ -349,32 +882,58 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
     for s in series:
         recent = s.demand_log[-28:] or [0]
         rate = sum(recent) / len(recent)
-        target = None
+        final: int | None = None
         if s.spec.scenario == "shortage":
-            target = int(rate * s.lead * 0.55)
+            final = int(rate * s.lead * 0.55)
         elif s.spec.scenario == "below_rop":
-            target = int(rate * s.lead + 0.5 * math.sqrt(max(rate, 0.1) * s.lead))
+            final = int(rate * s.lead + 0.5 * math.sqrt(max(rate, 0.1) * s.lead))
         elif s.spec.scenario == "out_of_stock":
-            target = 0
+            final = 0
         elif s.spec.scenario == "outstanding_po":
-            target = int(rate * s.lead * 0.6)
+            final = int(rate * s.lead * 0.6)
         elif s.spec.scenario == "overstock":
-            target = int(rate * 120)
-        if target is not None and target != s.stock - s.reserved:
-            delta = target - s.stock
-            w.ledger(s, "ADJUSTMENT", abs(delta), delta, 0, end_at, "CC-" + s.warehouse_code,
-                     "Cycle count correction" if delta < 0 else "Found stock in cycle count", wh_actor)
+            final = int(rate * 120)
+        if final is not None and final != s.stock - s.reserved:
+            delta = final - s.stock
+            w.ledger(
+                s,
+                "ADJUSTMENT",
+                abs(delta),
+                delta,
+                0,
+                end_at,
+                "CC-" + s.warehouse_code,
+                "Cycle count correction" if delta < 0 else "Found stock in cycle count",
+                wh_actor,
+            )
     # Customer reservations on a few healthy items
-    for sku, code, frac in [("ELEC-USBC-1M", "WH-NORTH", 0.2), ("OFF-PAPER-A4", "WH-SOUTH", 0.15),
-                            ("PKG-BOX-M", "WH-NORTH", 0.1), ("TOOL-DRILL-18V", "WH-WEST", 0.3)]:
+    for sku, code, frac in [
+        ("ELEC-USBC-1M", "WH-NORTH", 0.2),
+        ("OFF-PAPER-A4", "WH-SOUTH", 0.15),
+        ("PKG-BOX-M", "WH-NORTH", 0.1),
+        ("TOOL-DRILL-18V", "WH-WEST", 0.3),
+    ]:
         s = by_key[(sku, code)]
         q = int(s.stock * frac)
         if q > 0:
-            w.ledger(s, "RESERVATION", q, 0, q, end_at + timedelta(minutes=10), w.next_ref("RSV"), "Customer order hold", wh_actor)
+            w.ledger(
+                s,
+                "RESERVATION",
+                q,
+                0,
+                q,
+                end_at + timedelta(minutes=10),
+                w.next_ref("RSV"),
+                "Customer order hold",
+                wh_actor,
+            )
     # A few historical inter-warehouse transfers
     import uuid as _uuid
 
-    for sku, src, dst, q, days_ago in [("ELEC-MOUSE-WL", "WH-NORTH", "WH-WEST", 20, 40), ("HLTH-SANIT-500", "WH-NORTH", "WH-SOUTH", 60, 25)]:
+    for sku, src, dst, q, days_ago in [
+        ("ELEC-MOUSE-WL", "WH-NORTH", "WH-WEST", 20, 40),
+        ("HLTH-SANIT-500", "WH-NORTH", "WH-SOUTH", 60, 25),
+    ]:
         a, b = by_key[(sku, src)], by_key[(sku, dst)]
         if a.stock - a.reserved >= q:
             g = _uuid.uuid4()
@@ -389,19 +948,44 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
             po_id += 1
             line_id += 1
             qty = int(math.ceil(rate * (s.lead + 21) / 10) * 10)
-            w.pos.append({"id": po_id, "supplier_id": s.supplier_id, "warehouse_id": s.warehouse_id,
-                          "order_date": today - timedelta(days=2), "expected": today - timedelta(days=2) + timedelta(days=s.lead),
-                          "arrive": None})
-            po_lines[po_id].append({"id": line_id, "product_id": s.product_id, "qty": qty, "received": 0,
-                                    "cost": Decimal(str(s.spec.cost)), "received_on": None})
+            w.pos.append(
+                {
+                    "id": po_id,
+                    "supplier_id": s.supplier_id,
+                    "warehouse_id": s.warehouse_id,
+                    "order_date": today - timedelta(days=2),
+                    "expected": today - timedelta(days=2) + timedelta(days=s.lead),
+                    "arrive": None,
+                }
+            )
+            po_lines[po_id].append(
+                {
+                    "id": line_id,
+                    "product_id": s.product_id,
+                    "qty": qty,
+                    "received": 0,
+                    "cost": Decimal(str(s.spec.cost)),
+                    "received_on": None,
+                }
+            )
 
     # -------------------------------------------------------------------- persist
     async with sm() as session:
         conn = await session.connection()
         raw = (await conn.get_raw_connection()).driver_connection
+        assert raw is not None  # asyncpg connection (COPY support)
         await raw.copy_records_to_table(
-            "sales", records=w.sales,
-            columns=["product_id", "warehouse_id", "sold_at", "quantity", "unit_price", "order_reference", "created_at"],
+            "sales",
+            records=w.sales,
+            columns=[
+                "product_id",
+                "warehouse_id",
+                "sold_at",
+                "quantity",
+                "unit_price",
+                "order_reference",
+                "created_at",
+            ],
         )
         # PO numbers follow order date; status derived from receipts.
         number_of = {}
@@ -414,13 +998,36 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
             number_of[po["id"]] = number
             ordered = sum(ln["qty"] for ln in lines)
             received = sum(ln["received"] for ln in lines)
-            status = "RECEIVED" if received == ordered else ("PARTIALLY_RECEIVED" if received else "CONFIRMED")
-            received_date = max((ln["received_on"] for ln in lines if ln["received_on"]), default=None) if status == "RECEIVED" else None
+            status = (
+                "RECEIVED" if received == ordered else ("PARTIALLY_RECEIVED" if received else "CONFIRMED")
+            )
+            received_date = (
+                max((ln["received_on"] for ln in lines if ln["received_on"]), default=None)
+                if status == "RECEIVED"
+                else None
+            )
             created = datetime.combine(po["order_date"], time(10, 0), tzinfo=UTC)
-            po_rows.append((po["id"], number, po["supplier_id"], po["warehouse_id"], status, po["order_date"], po["expected"],
-                            created + timedelta(hours=1), received_date, None, po_actor, created, created))
+            po_rows.append(
+                (
+                    po["id"],
+                    number,
+                    po["supplier_id"],
+                    po["warehouse_id"],
+                    status,
+                    po["order_date"],
+                    po["expected"],
+                    created + timedelta(hours=1),
+                    received_date,
+                    None,
+                    po_actor,
+                    created,
+                    created,
+                )
+            )
             for ln in lines:
-                line_rows.append((ln["id"], po["id"], ln["product_id"], ln["qty"], ln["received"], ln["cost"]))
+                line_rows.append(
+                    (ln["id"], po["id"], ln["product_id"], ln["qty"], ln["received"], ln["cost"])
+                )
             if received:
                 receipt_id += 1
                 at = datetime.combine(received_date or po["arrive"], time(8, 30), tzinfo=UTC)
@@ -429,27 +1036,68 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
                     if ln["received"]:
                         rline_rows.append((receipt_id, ln["id"], ln["product_id"], ln["received"]))
         await raw.copy_records_to_table(
-            "purchase_orders", records=po_rows,
-            columns=["id", "po_number", "supplier_id", "warehouse_id", "status", "order_date", "expected_delivery_date",
-                     "submitted_at", "received_date", "notes", "created_by_id", "created_at", "updated_at"],
+            "purchase_orders",
+            records=po_rows,
+            columns=[
+                "id",
+                "po_number",
+                "supplier_id",
+                "warehouse_id",
+                "status",
+                "order_date",
+                "expected_delivery_date",
+                "submitted_at",
+                "received_date",
+                "notes",
+                "created_by_id",
+                "created_at",
+                "updated_at",
+            ],
         )
         await raw.copy_records_to_table(
-            "purchase_order_lines", records=line_rows,
-            columns=["id", "purchase_order_id", "product_id", "quantity_ordered", "quantity_received", "unit_cost"],
+            "purchase_order_lines",
+            records=line_rows,
+            columns=[
+                "id",
+                "purchase_order_id",
+                "product_id",
+                "quantity_ordered",
+                "quantity_received",
+                "unit_cost",
+            ],
         )
         await raw.copy_records_to_table(
-            "purchase_order_receipts", records=receipt_rows,
+            "purchase_order_receipts",
+            records=receipt_rows,
             columns=["id", "purchase_order_id", "receipt_key", "received_at", "received_by_id", "notes"],
         )
         await raw.copy_records_to_table(
-            "purchase_order_receipt_lines", records=rline_rows,
+            "purchase_order_receipt_lines",
+            records=rline_rows,
             columns=["receipt_id", "purchase_order_line_id", "product_id", "quantity"],
         )
-        tx_rows = [(*t[:8], number_of.get(int(t[8][3:]), t[8]) if t[8] and t[8].startswith("PO#") else t[8], *t[9:]) for t in w.tx]
+        tx_rows = [
+            (*t[:8], number_of.get(int(t[8][3:]), t[8]) if t[8] and t[8].startswith("PO#") else t[8], *t[9:])
+            for t in w.tx
+        ]
         await raw.copy_records_to_table(
-            "inventory_transactions", records=tx_rows,
-            columns=["product_id", "warehouse_id", "type", "quantity", "on_hand_delta", "reserved_delta", "on_hand_after",
-                     "reserved_after", "reference", "note", "transfer_group", "actor_id", "created_at"],
+            "inventory_transactions",
+            records=tx_rows,
+            columns=[
+                "product_id",
+                "warehouse_id",
+                "type",
+                "quantity",
+                "on_hand_delta",
+                "reserved_delta",
+                "on_hand_after",
+                "reserved_after",
+                "reference",
+                "note",
+                "transfer_group",
+                "actor_id",
+                "created_at",
+            ],
         )
         # Per-warehouse planning parameters (warehouses have different demand levels).
         inv_rows = []
@@ -462,12 +1110,24 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
             rop = math.ceil(daily * s.lead) + ss
             inv_rows.append((s.product_id, s.warehouse_id, s.stock, s.reserved, ss, rop, end_at))
         await raw.copy_records_to_table(
-            "inventory_items", records=inv_rows,
-            columns=["product_id", "warehouse_id", "quantity_on_hand", "reserved_quantity", "safety_stock",
-                     "reorder_point", "updated_at"],
+            "inventory_items",
+            records=inv_rows,
+            columns=[
+                "product_id",
+                "warehouse_id",
+                "quantity_on_hand",
+                "reserved_quantity",
+                "safety_stock",
+                "reorder_point",
+                "updated_at",
+            ],
         )
         for table in ("purchase_orders", "purchase_order_lines", "purchase_order_receipts"):
-            await session.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT COALESCE(MAX(id), 1) FROM {table}))"))
+            await session.execute(
+                text(
+                    f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT COALESCE(MAX(id), 1) FROM {table}))"  # noqa: S608 - fixed table names
+                )
+            )
         await session.commit()
 
         # A few hand-crafted open POs to show every workflow state
@@ -476,65 +1136,153 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
 
     await get_cache().invalidate(*CacheDomain)
     summary: dict[str, Any] = {
-        "warehouses": len(WAREHOUSES), "suppliers": len(SUPPLIERS), "products": len(PRODUCTS),
-        "inventory_items": len(series), "sales": len(w.sales), "transactions": len(w.tx),
+        "warehouses": len(WAREHOUSES),
+        "suppliers": len(SUPPLIERS),
+        "products": len(PRODUCTS),
+        "inventory_items": len(series),
+        "sales": len(w.sales),
+        "transactions": len(w.tx),
         "purchase_orders": len(w.pos) + extra,
     }
     logger.info("seed data written", extra={**summary, "seconds": round(_time.perf_counter() - started, 1)})
     if run_forecasts:
         t0 = _time.perf_counter()
-        result = await ForecastService.forecast_all(sm, get_cache(), get_settings().forecast_default_horizon_days)
+        result = await ForecastService.forecast_all(
+            sm, get_cache(), get_settings().forecast_default_horizon_days
+        )
         summary["forecasts"] = result["succeeded"]
-        logger.info("seed forecasts generated", extra={**result, "seconds": round(_time.perf_counter() - t0, 1)})
+        logger.info(
+            "seed forecasts generated", extra={**result, "seconds": round(_time.perf_counter() - t0, 1)}
+        )
     return summary
 
 
-async def _workflow_examples(session: Any, prod: dict[str, int], sup: dict[str, int], wh: dict[str, int],
-                             actor: int | None, today: date) -> int:
+async def _workflow_examples(
+    session: Any,
+    prod: dict[str, int],
+    sup: dict[str, int],
+    wh: dict[str, int],
+    actor: int | None,
+    today: date,
+) -> int:
     """DRAFT, SUBMITTED, overdue CONFIRMED, PARTIALLY_RECEIVED and CANCELLED examples."""
     examples = [
-        ("DRAFT", "PackRight Packaging", "WH-SOUTH", [("PKG-TAPE-48", 400), ("PKG-BOX-M", 600)], 0, 3, "Quarterly top-up (awaiting approval)"),
-        ("SUBMITTED", "Summit Office Supply", "WH-NORTH", [("OFF-STAPLER", 40), ("OFF-TONER-HP", 30)], 1, 5, "Sent to supplier"),
-        ("CONFIRMED", "Harbor Home Goods", "WH-WEST", [("HOME-TOWEL-SET", 80)], 20, 14, "Supplier confirmed – delivery overdue"),
-        ("PARTIALLY_RECEIVED", "CareWell Distributors", "WH-WEST", [("HLTH-THERM", 30), ("HLTH-MASK-50", 60)], 9, 7, "Backorder on masks"),
-        ("CANCELLED", "Northwind Electronics", "WH-NORTH", [("ELEC-KB-MECH", 25)], 30, 10, "Cancelled – price dispute"),
+        (
+            "DRAFT",
+            "PackRight Packaging",
+            "WH-SOUTH",
+            [("PKG-TAPE-48", 400), ("PKG-BOX-M", 600)],
+            0,
+            3,
+            "Quarterly top-up (awaiting approval)",
+        ),
+        (
+            "SUBMITTED",
+            "Summit Office Supply",
+            "WH-NORTH",
+            [("OFF-STAPLER", 40), ("OFF-TONER-HP", 30)],
+            1,
+            5,
+            "Sent to supplier",
+        ),
+        (
+            "CONFIRMED",
+            "Harbor Home Goods",
+            "WH-WEST",
+            [("HOME-TOWEL-SET", 80)],
+            20,
+            14,
+            "Supplier confirmed – delivery overdue",
+        ),
+        (
+            "PARTIALLY_RECEIVED",
+            "CareWell Distributors",
+            "WH-WEST",
+            [("HLTH-THERM", 30), ("HLTH-MASK-50", 60)],
+            9,
+            7,
+            "Backorder on masks",
+        ),
+        (
+            "CANCELLED",
+            "Northwind Electronics",
+            "WH-NORTH",
+            [("ELEC-KB-MECH", 25)],
+            30,
+            10,
+            "Cancelled – price dispute",
+        ),
     ]
     for status, supplier, code, lines, age, lead, notes in examples:
         order_date = today - timedelta(days=age)
         seq = await session.scalar(text("SELECT nextval('purchase_order_number_seq')"))
         po_id = await session.scalar(
-            text("INSERT INTO purchase_orders (po_number, supplier_id, warehouse_id, status, order_date, expected_delivery_date, "
-                 "submitted_at, notes, created_by_id) VALUES (:n, :s, :w, :st, :od, :ed, :sub, :notes, :a) RETURNING id"),
-            {"n": f"PO-{order_date:%Y}-{seq:06d}", "s": sup[supplier], "w": wh[code], "st": status, "od": order_date,
-             "ed": order_date + timedelta(days=lead), "sub": None if status == "DRAFT" else datetime.combine(order_date, time(11), tzinfo=UTC),
-             "notes": notes, "a": actor},
+            text(
+                "INSERT INTO purchase_orders (po_number, supplier_id, warehouse_id, status, order_date, expected_delivery_date, "
+                "submitted_at, notes, created_by_id) VALUES (:n, :s, :w, :st, :od, :ed, :sub, :notes, :a) RETURNING id"
+            ),
+            {
+                "n": f"PO-{order_date:%Y}-{seq:06d}",
+                "s": sup[supplier],
+                "w": wh[code],
+                "st": status,
+                "od": order_date,
+                "ed": order_date + timedelta(days=lead),
+                "sub": None if status == "DRAFT" else datetime.combine(order_date, time(11), tzinfo=UTC),
+                "notes": notes,
+                "a": actor,
+            },
         )
         for i, (sku, qty) in enumerate(lines):
             received = qty if (status == "PARTIALLY_RECEIVED" and i == 0) else 0
             cost = await session.scalar(text("SELECT cost FROM products WHERE id = :p"), {"p": prod[sku]})
             line_id = await session.scalar(
-                text("INSERT INTO purchase_order_lines (purchase_order_id, product_id, quantity_ordered, quantity_received, unit_cost) "
-                     "VALUES (:po, :p, :q, :r, :c) RETURNING id"),
+                text(
+                    "INSERT INTO purchase_order_lines (purchase_order_id, product_id, quantity_ordered, quantity_received, unit_cost) "
+                    "VALUES (:po, :p, :q, :r, :c) RETURNING id"
+                ),
                 {"po": po_id, "p": prod[sku], "q": qty, "r": received, "c": cost},
             )
             if received:
                 rid = await session.scalar(
-                    text("INSERT INTO purchase_order_receipts (purchase_order_id, receipt_key, received_by_id, notes) "
-                         "VALUES (:po, :k, :a, 'Partial delivery') RETURNING id"),
+                    text(
+                        "INSERT INTO purchase_order_receipts (purchase_order_id, receipt_key, received_by_id, notes) "
+                        "VALUES (:po, :k, :a, 'Partial delivery') RETURNING id"
+                    ),
                     {"po": po_id, "k": f"GRN-P{po_id}", "a": actor},
                 )
                 await session.execute(
-                    text("INSERT INTO purchase_order_receipt_lines (receipt_id, purchase_order_line_id, product_id, quantity) "
-                         "VALUES (:r, :l, :p, :q)"), {"r": rid, "l": line_id, "p": prod[sku], "q": received})
-                row = (await session.execute(
-                    text("UPDATE inventory_items SET quantity_on_hand = quantity_on_hand + :q WHERE product_id = :p AND warehouse_id = :w "
-                         "RETURNING quantity_on_hand, reserved_quantity"), {"q": received, "p": prod[sku], "w": wh[code]})).one()
+                    text(
+                        "INSERT INTO purchase_order_receipt_lines (receipt_id, purchase_order_line_id, product_id, quantity) "
+                        "VALUES (:r, :l, :p, :q)"
+                    ),
+                    {"r": rid, "l": line_id, "p": prod[sku], "q": received},
+                )
+                row = (
+                    await session.execute(
+                        text(
+                            "UPDATE inventory_items SET quantity_on_hand = quantity_on_hand + :q WHERE product_id = :p AND warehouse_id = :w "
+                            "RETURNING quantity_on_hand, reserved_quantity"
+                        ),
+                        {"q": received, "p": prod[sku], "w": wh[code]},
+                    )
+                ).one()
                 await session.execute(
-                    text("INSERT INTO inventory_transactions (product_id, warehouse_id, type, quantity, on_hand_delta, reserved_delta, "
-                         "on_hand_after, reserved_after, reference, note, actor_id) VALUES (:p, :w, 'PURCHASE_RECEIPT', :q, :q, 0, :oh, :rs, "
-                         ":ref, 'Partial delivery', :a)"),
-                    {"p": prod[sku], "w": wh[code], "q": received, "oh": row[0], "rs": row[1],
-                     "ref": f"PO-{order_date:%Y}-{seq:06d}", "a": actor})
+                    text(
+                        "INSERT INTO inventory_transactions (product_id, warehouse_id, type, quantity, on_hand_delta, reserved_delta, "
+                        "on_hand_after, reserved_after, reference, note, actor_id) VALUES (:p, :w, 'PURCHASE_RECEIPT', :q, :q, 0, :oh, :rs, "
+                        ":ref, 'Partial delivery', :a)"
+                    ),
+                    {
+                        "p": prod[sku],
+                        "w": wh[code],
+                        "q": received,
+                        "oh": row[0],
+                        "rs": row[1],
+                        "ref": f"PO-{order_date:%Y}-{seq:06d}",
+                        "a": actor,
+                    },
+                )
     return len(examples)
 
 

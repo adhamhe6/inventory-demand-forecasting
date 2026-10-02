@@ -50,5 +50,9 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorResponse, "description": "Authenticated but not permitted"},
     422: {"model": ErrorResponse, "description": "Validation or business-rule failure"},
 }
-NOT_FOUND = {404: {"model": ErrorResponse, "description": "Resource not found"}}
-CONFLICT = {409: {"model": ErrorResponse, "description": "Conflict with current state"}}
+NOT_FOUND: dict[int | str, dict[str, Any]] = {
+    404: {"model": ErrorResponse, "description": "Resource not found"}
+}
+CONFLICT: dict[int | str, dict[str, Any]] = {
+    409: {"model": ErrorResponse, "description": "Conflict with current state"}
+}

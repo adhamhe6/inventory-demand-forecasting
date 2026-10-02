@@ -64,7 +64,7 @@ AdminDep = Annotated[User, Depends(require(Permission.MANAGE_USERS))]
 
 @router.get("/users", response_model=Page[UserRead], summary="List users (admin)", responses=ERROR_RESPONSES)
 async def list_users(_: AdminDep, session: SessionDep, page: PageDep) -> Page[UserRead]:
-    users, total = await UserService(session).list(page)
+    users, total = await UserService(session).list_users(page)
     return Page.build([UserRead.model_validate(u) for u in users], total, page.page, page.page_size)
 
 

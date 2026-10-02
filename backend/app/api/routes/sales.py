@@ -49,7 +49,7 @@ async def list_sales(
     search: SearchQuery = None,
     sort: SortQuery = None,
 ) -> Page[SaleRead]:
-    items, total = await SalesService(session, cache).list(
+    items, total = await SalesService(session, cache).list_sales(
         page,
         product_id=product_id,
         warehouse_id=warehouse_id,
@@ -114,7 +114,7 @@ async def import_sales(
     if not name.endswith(".csv"):
         raise AppError("Only .csv files are accepted", code="INVALID_FILE_TYPE")
     import_dir = Path(settings.import_dir)
-    import_dir.mkdir(parents=True, exist_ok=True)
+    import_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240 - cheap local metadata op
     file_id = f"{uuid.uuid4().hex}.csv"
     target = import_dir / file_id
     limit = settings.max_import_file_mb * 1024 * 1024

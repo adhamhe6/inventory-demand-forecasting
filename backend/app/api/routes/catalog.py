@@ -14,6 +14,7 @@ from app.schemas.catalog import (
     ProductCreate,
     ProductDetail,
     ProductRead,
+    ProductStockByWarehouse,
     ProductUpdate,
     SupplierCreate,
     SupplierDetail,
@@ -104,7 +105,7 @@ async def get_product(product_id: int, _: CurrentUser, session: SessionDep, cach
     ]
     return ProductDetail(
         **ProductRead.model_validate(product).model_dump(),
-        stock=stock,  # type: ignore[arg-type]
+        stock=[ProductStockByWarehouse(**s) for s in stock],
         total_on_hand=sum(s["quantity_on_hand"] for s in stock),
         total_available=sum(s["available_quantity"] for s in stock),
     )

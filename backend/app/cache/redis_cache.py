@@ -20,6 +20,7 @@ a connection timeout on every request while Redis is down.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import hashlib
 import json
@@ -170,10 +171,8 @@ class RateLimiter:
     async def reset(self, bucket: str) -> None:
         if self._redis is None:
             return
-        try:
+        with contextlib.suppress(RedisError):
             await self._redis.delete(f"ratelimit:{bucket}")
-        except RedisError:
-            pass
 
 
 _redis_client: Redis | None = None

@@ -87,7 +87,7 @@ class SalesService:
             "created_at": sale.created_at,
         }
 
-    async def list(
+    async def list_sales(
         self,
         page: PageParams,
         *,
@@ -98,7 +98,7 @@ class SalesService:
         search: str | None = None,
         sort: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        stmt: Select[Any] = (
+        stmt: Select = (
             select(
                 Sale, Product.sku, Product.name.label("product_name"), Warehouse.code.label("warehouse_code")
             )
@@ -186,10 +186,10 @@ class SalesService:
           re-run resumes safely thanks to the de-duplication key.
         * Invalid rows are skipped and reported (first 100) with their line numbers.
         """
-        products = dict((await self.session.execute(select(Product.sku, Product.id))).tuples().all())
-        warehouses = dict((await self.session.execute(select(Warehouse.code, Warehouse.id))).tuples().all())
-        prices = dict((await self.session.execute(select(Product.id, Product.price))).tuples().all())
-        total_bytes = max(path.stat().st_size, 1)
+        products = dict((await self.session.execute(select(Product.sku, Product.id))).all())
+        warehouses = dict((await self.session.execute(select(Warehouse.code, Warehouse.id))).all())
+        prices = dict((await self.session.execute(select(Product.id, Product.price))).all())
+        total_bytes = max(path.stat().st_size, 1)  # noqa: ASYNC240 - single stat() call
         stats = {"total_rows": 0, "inserted": 0, "duplicates": 0, "invalid": 0}
         errors: list[dict[str, Any]] = []
         now = datetime.now(UTC) + timedelta(minutes=5)
@@ -207,15 +207,15 @@ class SalesService:
         with handle:
             source = _CountingLines(handle)
             reader = csv.DictReader(source)
-            header = {h.strip().lower() for h in (reader.fieldnames or []) if h}
-            missing = REQUIRED_COLUMNS - header
-            if missing:
-                raise CsvFormatError(
-                    f"CSV is missing required column(s): {', '.join(sorted(missing))}",
-                    details={"required": sorted(REQUIRED_COLUMNS), "optional": sorted(OPTIONAL_COLUMNS)},
-                )
-            batch: list[dict[str, Any]] = []
             try:
+                header = {h.strip().lower() for h in (reader.fieldnames or []) if h}
+                missing = REQUIRED_COLUMNS - header
+                if missing:
+                    raise CsvFormatError(
+                        f"CSV is missing required column(s): {', '.join(sorted(missing))}",
+                        details={"required": sorted(REQUIRED_COLUMNS), "optional": sorted(OPTIONAL_COLUMNS)},
+                    )
+                batch: list[dict[str, Any]] = []
                 for raw in reader:
                     line = reader.line_num
                     stats["total_rows"] += 1
@@ -238,8 +238,9 @@ class SalesService:
                                 min(99, int(source.consumed * 100 / total_bytes)), stats["total_rows"]
                             )
             except (csv.Error, UnicodeDecodeError) as exc:
+                reason = "file is not valid UTF-8 text" if isinstance(exc, UnicodeDecodeError) else str(exc)
                 raise CsvFormatError(
-                    f"Malformed CSV near line {reader.line_num}: {exc}", details={**stats}
+                    f"Malformed CSV near line {reader.line_num + 1}: {reason}", details={**stats}
                 ) from exc
             if batch:
                 await self._insert_batch(batch, stats)

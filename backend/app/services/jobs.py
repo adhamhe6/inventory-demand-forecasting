@@ -98,7 +98,7 @@ class JobService:
             raise NotFoundError(f"Job {job_id} not found")
         return job
 
-    async def list(
+    async def list_jobs(
         self, page: PageParams, *, type_: JobType | None, status: JobStatus | None, user_id: int | None
     ) -> tuple[list[Job], int]:
         stmt = select(Job)

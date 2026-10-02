@@ -41,7 +41,7 @@ class UserService:
             raise NotFoundError(f"User {user_id} not found")
         return user
 
-    async def list(self, page: PageParams) -> tuple[list[User], int]:
+    async def list_users(self, page: PageParams) -> tuple[list[User], int]:
         stmt = apply_sort(select(User), None, {"id": User.id, "email": User.email}, "email")
         rows, total = await paginate(self.session, stmt, page)
         return [r[0] for r in rows], total

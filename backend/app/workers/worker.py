@@ -56,8 +56,8 @@ async def reap_stale_jobs(ctx: dict[str, Any]) -> None:
             )
         )
         await session.commit()
-    if res.rowcount:  # type: ignore[attr-defined]
-        logger.warning("marked stale jobs as failed", extra={"count": res.rowcount})  # type: ignore[attr-defined]
+    if res.rowcount:
+        logger.warning("marked stale jobs as failed", extra={"count": res.rowcount})
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:

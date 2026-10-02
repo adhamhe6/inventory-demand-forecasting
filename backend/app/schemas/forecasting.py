@@ -115,7 +115,9 @@ class StockRiskRead(BaseModel):
     available_quantity: int
     inbound_quantity: int = Field(description="Open purchase order quantity not yet received")
     safety_stock: int
-    reorder_point: float = Field(description="Dynamic reorder point: max(static ROP, lead-time demand + safety stock)")
+    reorder_point: float = Field(
+        description="Dynamic reorder point: max(static ROP, lead-time demand + safety stock)"
+    )
     lead_time_days: int
     avg_daily_demand: float
     demand_during_lead_time: float

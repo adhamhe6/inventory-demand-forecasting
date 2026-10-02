@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-_INSECURE_SECRETS = {"", "change-me", "changeme", "secret", "dev-secret-key-change-me"}
+_INSECURE_SECRETS = {"", "change-me", "changeme", "secret", "dev-insecure-secret-key-change-me-in-production"}
 
 
 class Settings(BaseSettings):
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     cache_enabled: bool = True
     cache_default_ttl_seconds: int = 300
 
-    secret_key: SecretStr = SecretStr("dev-secret-key-change-me")
+    secret_key: SecretStr = SecretStr("dev-insecure-secret-key-change-me-in-production")
     jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_expire_minutes: int = 60
 

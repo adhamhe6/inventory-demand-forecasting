@@ -26,11 +26,11 @@ class PageParams:
 
 
 def apply_sort(
-    stmt: Select[Any],
+    stmt: Select,
     sort: str | None,
     allowed: dict[str, ColumnElement[Any] | Any],
     default: str,
-) -> Select[Any]:
+) -> Select:
     """Apply ``sort=field`` / ``sort=-field`` using an allow-list (never raw user SQL).
 
     Multiple fields can be comma separated. A stable tiebreaker on the first allowed column
@@ -54,7 +54,7 @@ def apply_sort(
     return stmt.order_by(*order)
 
 
-async def paginate(session: AsyncSession, stmt: Select[Any], params: PageParams) -> tuple[list[Any], int]:
+async def paginate(session: AsyncSession, stmt: Select, params: PageParams) -> tuple[list[Any], int]:
     total = await session.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
     rows = (await session.execute(stmt.limit(params.page_size).offset(params.offset))).all()
     return list(rows), int(total or 0)

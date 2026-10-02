@@ -57,18 +57,18 @@ async def list_purchase_orders(
     format: Annotated[str, Query(pattern="^(json|csv)$")] = "json",
 ) -> Any:
     svc = PurchasingService(session, cache)
-    kwargs = dict(
-        statuses=status_,
-        supplier_id=supplier_id,
-        warehouse_id=warehouse_id,
-        product_id=product_id,
-        date_from=date_from,
-        date_to=date_to,
-        search=search,
-        sort=sort,
-    )
+    kwargs: dict[str, Any] = {
+        "statuses": status_,
+        "supplier_id": supplier_id,
+        "warehouse_id": warehouse_id,
+        "product_id": product_id,
+        "date_from": date_from,
+        "date_to": date_to,
+        "search": search,
+        "sort": sort,
+    }
     if format == "csv":
-        items, _t = await svc.list(PageParams(1, 10_000), **kwargs)  # type: ignore[arg-type]
+        items, _t = await svc.list_orders(PageParams(1, 10_000), **kwargs)
         return maybe_csv(
             items,
             "purchase-orders",
@@ -85,7 +85,7 @@ async def list_purchase_orders(
                 "total_amount",
             ],
         )
-    items, total = await svc.list(page, **kwargs)  # type: ignore[arg-type]
+    items, total = await svc.list_orders(page, **kwargs)
     return Page.build(
         [PurchaseOrderSummary.model_validate(i) for i in items], total, page.page, page.page_size
     )
@@ -182,4 +182,4 @@ async def receive_purchase_order(
     )
     return ReceiveResult(
         purchase_order=PurchaseOrderRead.model_validate(po), receipt=receipt, replayed=replayed
-    )  # type: ignore[arg-type]
+    )
