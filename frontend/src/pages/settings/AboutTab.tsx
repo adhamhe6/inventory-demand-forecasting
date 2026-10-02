@@ -3,6 +3,8 @@ import { useMeta } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { API_BASE } from '@/lib/api'
+import { useAuth } from '@/lib/auth'
+import { cn } from '@/lib/utils'
 import { toLevelPct } from '../forecasting/lib'
 
 function stack(intervalPct: number | null) {
@@ -21,11 +23,14 @@ function stack(intervalPct: number | null) {
 
 export function AboutTab() {
   const meta = useMeta()
+  // API details are for administrators only; for other roles the card is not rendered at all.
+  const isAdmin = useAuth().user?.role === 'ADMIN'
+
   const version = meta.data?.version
   const STACK = stack(toLevelPct(meta.data?.forecast_interval_level))
   return (
-    <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-3">
-      <Card className="xl:col-span-2">
+    <div className={cn('grid gap-6 [&>*]:min-w-0', isAdmin && 'xl:grid-cols-3')}>
+      <Card className={cn(isAdmin && 'xl:col-span-2')}>
         <CardHeader>
           <CardTitle>StockSense</CardTitle>
           <CardDescription>
@@ -50,30 +55,32 @@ export function AboutTab() {
           </ul>
         </CardContent>
       </Card>
-      <Card className="self-start">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BookOpen className="size-4 text-muted-foreground" aria-hidden /> API
-          </CardTitle>
-          <CardDescription>Every screen is built on the public REST API.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-            <dt className="text-muted-foreground">Base URL</dt>
-            <dd className="break-all font-mono text-xs">{API_BASE}</dd>
-            <dt className="text-muted-foreground">Auth</dt>
-            <dd>Bearer token (JWT)</dd>
-            <dt className="text-muted-foreground">Errors</dt>
-            <dd className="font-mono text-xs">{'{ error: { code, message } }'}</dd>
-          </dl>
-          <Button variant="outline" asChild className="w-full">
-            <a href="/docs" target="_blank" rel="noreferrer">
-              Interactive API docs <ExternalLink />
-            </a>
-          </Button>
-          <p className="text-xs text-muted-foreground">The docs are served by the API at /docs (proxied in the Docker deployment).</p>
-        </CardContent>
-      </Card>
+      {isAdmin && (
+        <Card className="self-start">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="size-4 text-muted-foreground" aria-hidden /> API
+            </CardTitle>
+            <CardDescription>Every screen is built on the public REST API.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+              <dt className="text-muted-foreground">Base URL</dt>
+              <dd className="break-all font-mono text-xs">{API_BASE}</dd>
+              <dt className="text-muted-foreground">Auth</dt>
+              <dd>Bearer token (JWT)</dd>
+              <dt className="text-muted-foreground">Errors</dt>
+              <dd className="font-mono text-xs">{'{ error: { code, message } }'}</dd>
+            </dl>
+            <Button variant="outline" asChild className="w-full">
+              <a href="/docs" target="_blank" rel="noreferrer">
+                Interactive API docs <ExternalLink />
+              </a>
+            </Button>
+            <p className="text-xs text-muted-foreground">The docs are served by the API at /docs (proxied in the Docker deployment).</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
