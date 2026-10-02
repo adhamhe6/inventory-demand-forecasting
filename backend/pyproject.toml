@@ -83,3 +83,7 @@ markers = [
     "e2e: end-to-end API workflows",
 ]
 filterwarnings = ["ignore::DeprecationWarning:statsmodels.*"]
+
+[tool.coverage.run]
+# Seed/bootstrap scripts are exercised by the Docker deployment (migrate service), not pytest.
+omit = ["app/scripts/*"]
