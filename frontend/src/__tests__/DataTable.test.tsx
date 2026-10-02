@@ -58,3 +58,21 @@ describe('DataTable row activation', () => {
     expect(onRowClick).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('ErrorState retry', () => {
+  it('also refetches other failed queries on the page', async () => {
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+    const { ErrorState } = await import('@/components/common/States')
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const spy = vi.spyOn(qc, 'refetchQueries').mockResolvedValue(undefined)
+    const own = vi.fn()
+    render(
+      <QueryClientProvider client={qc}>
+        <ErrorState error={new Error('down')} onRetry={own} />
+      </QueryClientProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+    expect(own).toHaveBeenCalledOnce()
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ type: 'active' }))
+  })
+})

@@ -25,7 +25,9 @@ test('forecast job runs in the background worker and the chart shows the result'
   // Chart and model panel render the stored run
   await expect(page.locator('.recharts-surface').first()).toBeVisible()
   await expect(page.getByText('Model & accuracy')).toBeVisible()
-  await expect(page.getByText(after.forecast.metrics.mae.toFixed(1)).first()).toBeVisible()
+  // The stored backtest MAE is what the page reports (anchored on the label, so other "3.0"-like text can't match).
+  const mae = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(after.forecast.metrics.mae) // = fmt.num
+  await expect(page.getByText(`MAE ${mae} units/day`)).toBeVisible()
 })
 
 /**

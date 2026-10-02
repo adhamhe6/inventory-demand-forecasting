@@ -56,7 +56,10 @@ export function LatestForecastsTable({
                 {r.product_name}
                 {isSel && <span className="sr-only"> (shown in chart)</span>}
               </p>
-              <p className="truncate font-mono text-xs text-muted-foreground">{r.sku}</p>
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {r.sku}
+                <span className="font-sans sm:hidden"> · {r.warehouse_code}</span>
+              </p>
             </div>
           </div>
         )

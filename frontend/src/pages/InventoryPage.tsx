@@ -73,6 +73,7 @@ export default function InventoryPage() {
       key: 'sku',
       header: 'SKU',
       sortKey: 'sku',
+      hideBelow: 'lg',
       cell: (i) => (
         <Link to={`/products/${i.product_id}`} onClick={(e) => e.stopPropagation()} className="whitespace-nowrap font-mono text-xs font-medium text-primary hover:underline">
           {i.sku}
@@ -86,13 +87,18 @@ export default function InventoryPage() {
       cell: (i) => (
         <div className="min-w-0 max-w-[14rem]">
           <p className="truncate font-medium">{i.product_name}</p>
-          <p className="truncate text-xs text-muted-foreground">{i.category}</p>
+          {/* Below lg the SKU column is hidden, below sm the warehouse column too: keep both identifiable here. */}
+          <p className="truncate text-xs text-muted-foreground">
+            <span className="hidden lg:inline">{i.category}</span>
+            <span className="font-mono lg:hidden">{i.sku}</span>
+            <span className="sm:hidden"> · {i.warehouse_code}</span>
+          </p>
         </div>
       ),
     },
     { key: 'wh', header: 'Warehouse', sortKey: 'warehouse_code', cell: (i) => <span className="whitespace-nowrap">{i.warehouse_code}</span>, hideBelow: 'sm' },
-    { key: 'onhand', header: 'On hand', sortKey: 'quantity_on_hand', align: 'right', cell: (i) => <span className="tabular">{fmt.int(i.quantity_on_hand)}</span> },
-    { key: 'reserved', header: 'Reserved', sortKey: 'reserved_quantity', align: 'right', hideBelow: 'md', cell: (i) => <span className="tabular text-muted-foreground">{fmt.int(i.reserved_quantity)}</span> },
+    { key: 'onhand', header: 'On hand', sortKey: 'quantity_on_hand', align: 'right', hideBelow: 'sm', cell: (i) => <span className="tabular">{fmt.int(i.quantity_on_hand)}</span> },
+    { key: 'reserved', header: 'Reserved', sortKey: 'reserved_quantity', align: 'right', hideBelow: 'lg', cell: (i) => <span className="tabular text-muted-foreground">{fmt.int(i.reserved_quantity)}</span> },
     {
       key: 'available',
       header: 'Available',

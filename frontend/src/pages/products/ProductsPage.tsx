@@ -98,7 +98,7 @@ export default function ProductsPage() {
           <span className="text-muted-foreground">—</span>
         ),
     },
-    { key: 'cost', header: 'Cost', sortKey: 'cost', align: 'right', hideBelow: 'md', cell: (p) => <span className="tabular text-muted-foreground">{fmt.money(p.cost)}</span> },
+    { key: 'cost', header: 'Cost', sortKey: 'cost', align: 'right', hideBelow: 'lg', cell: (p) => <span className="tabular text-muted-foreground">{fmt.money(p.cost)}</span> },
     { key: 'price', header: 'Price', sortKey: 'price', align: 'right', cell: (p) => <span className="font-medium tabular">{fmt.money(p.price)}</span> },
     {
       key: 'margin',

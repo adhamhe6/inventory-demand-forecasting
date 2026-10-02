@@ -1,4 +1,5 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { useRetryFailed } from '@/components/common/States'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -28,6 +29,7 @@ export function LookupError({
   const names = failed.map(([name]) => name)
   const label = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
   const busy = failed.some(([, q]) => q.isFetching)
+  const retry = useRetryFailed(() => failed.forEach(([, q]) => void q.refetch()))
   return (
     <div
       role="alert"
@@ -47,7 +49,7 @@ export function LookupError({
         size="sm"
         className="h-7 px-2 text-destructive hover:text-destructive"
         loading={busy}
-        onClick={() => failed.forEach(([, q]) => void q.refetch())}
+        onClick={retry}
       >
         {!busy && <RefreshCw />} Retry
       </Button>

@@ -4,14 +4,17 @@ import { Button } from '@/components/ui/button'
 
 export default function NotFoundPage() {
   return (
-    <EmptyState
-      title="Page not found"
-      description="The page you are looking for doesn't exist or has moved."
-      action={
-        <Button asChild>
-          <Link to="/">Back to dashboard</Link>
-        </Button>
-      }
-    />
+    <>
+      <h1 className="sr-only">Page not found</h1>
+      <EmptyState
+        title="Page not found"
+        description="The page you are looking for doesn't exist or has moved."
+        action={
+          <Button asChild>
+            <Link to="/">Back to dashboard</Link>
+          </Button>
+        }
+      />
+    </>
   )
 }

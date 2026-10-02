@@ -118,7 +118,7 @@ export default function DashboardPage() {
             />
           </section>
 
-          <div className="grid gap-6 xl:grid-cols-3">
+          <div className="grid gap-6 xl:grid-cols-3 [&>*]:min-w-0">
             <ChartCard className="xl:col-span-2" title="Units sold per day" description="Last 90 days, all warehouses">
               {d.sales_trend.length === 0 ? (
                 <EmptyState title="No sales yet" description="Record or import sales to see the daily trend." />
@@ -181,7 +181,7 @@ export default function DashboardPage() {
             </ChartCard>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
             <ChartCard
               title="Forecasted demand"
               description={`Next 30 days · sum of item forecasts with ${intervalLabel}`}
@@ -247,7 +247,7 @@ export default function DashboardPage() {
             </ChartCard>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-5">
+          <div className="grid gap-6 xl:grid-cols-5 [&>*]:min-w-0">
             <ChartCard className="xl:col-span-2" title="Stock value by warehouse" description="At cost" height={240}>
               {d.warehouse_distribution.length === 0 ? (
                 <EmptyState title="No warehouses" description="Create a warehouse and receive stock to see its value." />

@@ -1,5 +1,6 @@
+import { QueryClientContext } from '@tanstack/react-query'
 import { AlertTriangle, Inbox, RefreshCw } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useContext } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError, errorMessage } from '@/lib/api'
@@ -40,9 +41,23 @@ function friendly(error: unknown): { title: string; message: string } {
   return { title: 'Something went wrong', message: errorMessage(error) }
 }
 
+/**
+ * Retry helper: runs the caller's own retry and also refetches every other *failed* query that
+ * is on screen. After an outage a page with several independently loaded sections then recovers
+ * with one click instead of one click per section. Works without a QueryClientProvider (tests).
+ */
+export function useRetryFailed(onRetry?: () => void): () => void {
+  const client = useContext(QueryClientContext)
+  return () => {
+    onRetry?.()
+    void client?.refetchQueries({ type: 'active', predicate: (q) => q.state.status === 'error' })
+  }
+}
+
 export function ErrorState({ error, onRetry, className }: { error: unknown; onRetry?: () => void; className?: string }) {
   const { title, message } = friendly(error)
   const requestId = error instanceof ApiError ? error.requestId : null
+  const retry = useRetryFailed(onRetry)
   return (
     <div role="alert" className={cn('flex flex-col items-center justify-center gap-2 px-6 py-12 text-center', className)}>
       <div className="mb-1 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
@@ -52,7 +67,7 @@ export function ErrorState({ error, onRetry, className }: { error: unknown; onRe
       <p className="max-w-md text-sm text-muted-foreground">{message}</p>
       {requestId && <p className="text-xs text-muted-foreground">Reference: {requestId}</p>}
       {onRetry && (
-        <Button variant="outline" size="sm" className="mt-2" onClick={onRetry}>
+        <Button variant="outline" size="sm" className="mt-2" onClick={retry}>
           <RefreshCw /> Try again
         </Button>
       )}
