@@ -20,8 +20,12 @@ WHERE l.on_hand_after <> i.quantity_on_hand OR l.reserved_after <> i.reserved_qu
 SELECT 'bad_balances', count(*) FROM inventory_items WHERE quantity_on_hand<0 OR reserved_quantity<0 OR reserved_quantity>quantity_on_hand;
 -- 4. PO lines never over-received; status consistent with receipts
 SELECT 'over_received', count(*) FROM purchase_order_lines WHERE quantity_received > quantity_ordered;
-SELECT 'received_status_mismatch', count(*) FROM purchase_orders po WHERE status='RECEIVED' AND EXISTS
-  (SELECT 1 FROM purchase_order_lines l WHERE l.purchase_order_id=po.id AND l.quantity_received<l.quantity_ordered);
+-- RECEIVED = fully received, or closed short (only reachable after a receipt): either way it has a
+-- received_date, and an outstanding balance implies at least one receipt.
+SELECT 'received_status_mismatch', count(*) FROM purchase_orders po WHERE status='RECEIVED' AND (
+  received_date IS NULL
+  OR (EXISTS (SELECT 1 FROM purchase_order_lines l WHERE l.purchase_order_id=po.id AND l.quantity_received<l.quantity_ordered)
+      AND NOT EXISTS (SELECT 1 FROM purchase_order_receipts r WHERE r.purchase_order_id=po.id)));
 -- 5. ledger receipts for POs equal received quantities
 SELECT 'po_receipt_ledger_mismatch', count(*) FROM (
   SELECT po.po_number, sum(l.quantity_received) rec,

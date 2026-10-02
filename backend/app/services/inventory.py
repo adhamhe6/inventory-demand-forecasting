@@ -114,7 +114,6 @@ class InventoryService:
         statuses: Sequence[StockStatus] | None = None,
         search: str | None = None,
         sort: str | None = None,
-        only_stocked: bool = False,
     ) -> tuple[list[dict[str, Any]], int]:
         stmt = inventory_select()
         if warehouse_id:
@@ -129,8 +128,6 @@ class InventoryService:
             stmt = stmt.where(STATUS_EXPR.in_([s.value for s in statuses]))
         if search:
             stmt = stmt.where(_ilike_any(search, Product.sku, Product.name))
-        if only_stocked:
-            stmt = stmt.where(InventoryItem.quantity_on_hand > 0)
         stmt = apply_sort(
             stmt,
             sort,

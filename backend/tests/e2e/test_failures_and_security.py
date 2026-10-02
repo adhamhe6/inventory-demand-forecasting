@@ -75,6 +75,26 @@ async def test_deactivated_user_token_is_rejected(client, auth, users) -> None:
     err(await client.get(f"{API}/products", headers=h), 401)
 
 
+async def test_user_patch_guards(client, auth, users) -> None:
+    admin = users[Role.ADMIN].id
+    analyst = users[Role.ANALYST].id
+    h = auth(Role.ADMIN)
+    # Explicit nulls are a validation error, not a NOT NULL violation surfacing as 409.
+    for field in ("full_name", "role", "is_active"):
+        err(
+            await client.patch(f"{API}/users/{analyst}", json={field: None}, headers=h),
+            422,
+            "VALIDATION_ERROR",
+        )
+    # An admin cannot lock themselves out.
+    err(await client.patch(f"{API}/users/{admin}", json={"is_active": False}, headers=h), 422, "SELF_LOCKOUT")
+    err(await client.patch(f"{API}/users/{admin}", json={"role": "ANALYST"}, headers=h), 422, "SELF_LOCKOUT")
+    assert (
+        ok(await client.patch(f"{API}/users/{admin}", json={"full_name": "Root"}, headers=h))["role"]
+        == "ADMIN"
+    )
+
+
 @pytest.mark.parametrize(
     ("role", "method", "path", "body"),
     [

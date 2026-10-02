@@ -201,8 +201,10 @@ def create_app() -> FastAPI:
         description=(
             "Multi-warehouse inventory, purchasing and sales with demand forecasting, shortage "
             "detection and restocking recommendations.\n\n"
-            "**Authenticate**: click *Authorize* and sign in with your email (username) and password "
-            "(demo: `admin@example.com` / `ChangeMe123!`), or `POST /api/v1/auth/login` for a JSON token.\n\n"
+            "**Authenticate**: click *Authorize* and sign in with your email (username) and password"
+            # Demo credentials are only advertised when demo data is seeded (never in production).
+            + (" (demo: `admin@demo.example` / `DemoPass123!`)" if settings.seed_demo_data else "")
+            + ", or `POST /api/v1/auth/login` for a JSON token.\n\n"
             'Errors always have the shape `{"error": {"code", "message", "details"}, "request_id"}`.'
         ),
         openapi_tags=OPENAPI_TAGS,

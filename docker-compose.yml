@@ -61,7 +61,9 @@ services:
     image: inventory-backend:local
     environment: *backend-env
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Loopback only: the public entry point is nginx (WEB_PORT), which sets X-Forwarded-For and
+      # caps upload size. Direct API access is for local Swagger/debugging.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - imports:/data/imports
     depends_on:

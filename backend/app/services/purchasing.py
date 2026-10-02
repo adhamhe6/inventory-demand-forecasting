@@ -1,11 +1,13 @@
 """Purchase-order workflow and receiving.
 
-State machine (receiving transitions are only reachable through :meth:`receive`)::
+State machine (receipts are only recorded through :meth:`receive`)::
 
     DRAFT ──submit──► SUBMITTED ──confirm──► CONFIRMED ──receive──► PARTIALLY_RECEIVED ──► RECEIVED
-      │                   │                     │                        ▲      │
+      │                   │                     │                        ▲      │    receive / close short
       └──────cancel───────┴──────cancel─────────┘                        └──────┘ receive
                                           (cancel only before any receipt)
+
+"Close short" (manual PARTIALLY_RECEIVED → RECEIVED) ends an order the supplier won't complete.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.cache.redis_cache import Cache, CacheDomain
-from app.core.errors import BusinessRuleError, InvalidStateTransitionError, NotFoundError
+from app.core.errors import BusinessRuleError, ConflictError, InvalidStateTransitionError, NotFoundError
 from app.db.models import (
     EntityStatus,
     Product,
@@ -47,7 +49,9 @@ MANUAL_TRANSITIONS: dict[PurchaseOrderStatus, set[PurchaseOrderStatus]] = {
     S.DRAFT: {S.SUBMITTED, S.CANCELLED},
     S.SUBMITTED: {S.CONFIRMED, S.CANCELLED},
     S.CONFIRMED: {S.CANCELLED},
-    S.PARTIALLY_RECEIVED: set(),
+    # "Close short": the supplier won't ship the remainder. Receipts are kept, the outstanding
+    # quantity stops counting as inbound, and fill rate reflects the shortfall.
+    S.PARTIALLY_RECEIVED: {S.RECEIVED},
     S.RECEIVED: set(),
     S.CANCELLED: set(),
 }
@@ -56,10 +60,10 @@ OPEN_STATUSES = (S.DRAFT, S.SUBMITTED, S.CONFIRMED, S.PARTIALLY_RECEIVED)
 
 
 def allowed_transitions(status: PurchaseOrderStatus) -> list[PurchaseOrderStatus]:
-    allowed = sorted(MANUAL_TRANSITIONS[status], key=list(S).index)
+    allowed = set(MANUAL_TRANSITIONS[status])
     if status in RECEIVABLE:
-        allowed += [S.PARTIALLY_RECEIVED, S.RECEIVED] if status == S.CONFIRMED else [S.RECEIVED]
-    return allowed
+        allowed |= {S.PARTIALLY_RECEIVED, S.RECEIVED} if status == S.CONFIRMED else {S.RECEIVED}
+    return sorted(allowed, key=list(S).index)
 
 
 class PurchasingService:
@@ -326,10 +330,9 @@ class PurchasingService:
             )
         changes = data.model_dump(exclude_unset=True)
         if "expected_delivery_date" in changes:
-            if data.expected_delivery_date and data.expected_delivery_date < po.order_date:
-                raise BusinessRuleError(
-                    "expected_delivery_date must not be before order_date", code="INVALID_DATE"
-                )
+            # Same rule as create: a draft can't be re-planned to arrive in the past.
+            if data.expected_delivery_date and data.expected_delivery_date < datetime.now(UTC).date():
+                raise BusinessRuleError("expected_delivery_date cannot be in the past", code="INVALID_DATE")
             po.expected_delivery_date = data.expected_delivery_date
         if "notes" in changes:
             po.notes = data.notes
@@ -363,6 +366,8 @@ class PurchasingService:
             raise InvalidStateTransitionError("Cannot cancel a purchase order that has received goods")
         if target == S.SUBMITTED:
             po.submitted_at = datetime.now(UTC)
+        if target == S.RECEIVED:  # closed short (only reachable from PARTIALLY_RECEIVED)
+            po.received_date = datetime.now(UTC).date()
         old = po.status
         po.status = target
         await self.session.flush()
@@ -398,6 +403,17 @@ class PurchasingService:
         if receipt_key:
             existing = next((r for r in po.receipts if r.receipt_key == receipt_key), None)
             if existing is not None:
+                # A replay must describe the same delivery. Same reference with different lines is
+                # a client error (two deliveries under one GRN), not something to silently drop.
+                if lines is not None:
+                    requested = {ln.line_id: ln.quantity for ln in lines}
+                    recorded = {rl.purchase_order_line_id: rl.quantity for rl in existing.lines}
+                    if requested != recorded:
+                        raise ConflictError(
+                            f"Receipt reference {receipt_key!r} was already used for a different delivery",
+                            code="IDEMPOTENCY_KEY_REUSED",
+                            details={"receipt_reference": receipt_key, "recorded": recorded},
+                        )
                 po_dict = self.to_dict(po)
                 receipt = next(r for r in po_dict["receipts"] if r["id"] == existing.id)
                 logger.info("duplicate receipt ignored", extra={"po_id": po_id, "receipt_key": receipt_key})
@@ -498,19 +514,3 @@ class PurchasingService:
             )
         ).all()
         return [(r[0], r[1], int(r[2]), r[3], r[4]) for r in rows]
-
-    async def open_quantities(self) -> dict[tuple[int, int], int]:
-        """Outstanding (ordered - received) units per (product, warehouse) on open POs."""
-        rows = (
-            await self.session.execute(
-                select(
-                    PurchaseOrderLine.product_id,
-                    PurchaseOrder.warehouse_id,
-                    func.sum(PurchaseOrderLine.quantity_ordered - PurchaseOrderLine.quantity_received),
-                )
-                .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.purchase_order_id)
-                .where(PurchaseOrder.status.in_(OPEN_STATUSES))
-                .group_by(PurchaseOrderLine.product_id, PurchaseOrder.warehouse_id)
-            )
-        ).all()
-        return {(r[0], r[1]): int(r[2] or 0) for r in rows}

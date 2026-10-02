@@ -84,7 +84,7 @@ export default function LoginPage() {
             </li>
           </ul>
         </div>
-        <p className="relative text-xs text-white/40">© {YEAR} StockSense demo</p>
+        <p className="relative text-xs text-white/40">© {YEAR} StockSense</p>
       </div>
       <div className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-sm space-y-6">

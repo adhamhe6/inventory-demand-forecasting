@@ -129,6 +129,103 @@ async def test_cancel_and_open_quantities(catalog: dict) -> None:
     po = await make_po(catalog)
     other = await make_po(catalog, qty1=7, qty2=1)
     await svc_call("change_status", other["id"], S.CANCELLED, None)
-    open_q = await svc_call("open_quantities")
-    assert open_q[(catalog["p1"].id, catalog["wa"].id)] == 10  # cancelled PO not counted
+    lines = await svc_call("open_lines")
+    open_q = sum(q for pid, wid, q, _, _ in lines if (pid, wid) == (catalog["p1"].id, catalog["wa"].id))
+    assert open_q == 10  # cancelled PO not counted
     assert po["status"] == S.DRAFT
+
+
+async def test_close_short_ends_a_partially_received_order(catalog: dict) -> None:
+    po = await make_po(catalog)
+    await confirm(po["id"])
+    first = po["lines"][0]
+    await svc_call(
+        "receive",
+        po["id"],
+        [ReceiveLine(line_id=first["id"], quantity=4)],
+        receipt_key=None,
+        notes=None,
+        actor_id=None,
+    )
+    # The remainder will never come: closing short removes it from inbound stock.
+    closed = await svc_call("change_status", po["id"], S.RECEIVED, None)
+    assert closed["status"] == S.RECEIVED and closed["received_date"] is not None
+    assert closed["allowed_transitions"] == []
+    assert not [ln for ln in await svc_call("open_lines") if ln[0] == catalog["p1"].id]
+    with pytest.raises(InvalidStateTransitionError):
+        await svc_call(
+            "receive",
+            po["id"],
+            [ReceiveLine(line_id=first["id"], quantity=1)],
+            receipt_key=None,
+            notes=None,
+            actor_id=None,
+        )
+    # Cancelling after a receipt is still refused (the goods were received).
+    other = await make_po(catalog)
+    await confirm(other["id"])
+    await svc_call(
+        "receive",
+        other["id"],
+        [ReceiveLine(line_id=other["lines"][0]["id"], quantity=1)],
+        receipt_key=None,
+        notes=None,
+        actor_id=None,
+    )
+    with pytest.raises(InvalidStateTransitionError):
+        await svc_call("change_status", other["id"], S.CANCELLED, None)
+
+
+async def test_receipt_reference_replay_must_match_the_original_delivery(catalog: dict) -> None:
+    from app.core.errors import ConflictError
+
+    po = await make_po(catalog)
+    await confirm(po["id"])
+    line = po["lines"][0]["id"]
+    _, _, replayed = await svc_call(
+        "receive",
+        po["id"],
+        [ReceiveLine(line_id=line, quantity=3)],
+        receipt_key="GRN-1",
+        notes=None,
+        actor_id=None,
+    )
+    assert replayed is False
+    _, _, replayed = await svc_call(
+        "receive",
+        po["id"],
+        [ReceiveLine(line_id=line, quantity=3)],
+        receipt_key="GRN-1",
+        notes=None,
+        actor_id=None,
+    )
+    assert replayed is True
+    with pytest.raises(ConflictError) as exc:
+        await svc_call(
+            "receive",
+            po["id"],
+            [ReceiveLine(line_id=line, quantity=5)],
+            receipt_key="GRN-1",
+            notes=None,
+            actor_id=None,
+        )
+    assert exc.value.code == "IDEMPOTENCY_KEY_REUSED"
+    async with get_sessionmaker()() as s:
+        on_hand = await s.scalar(
+            select(InventoryItem.quantity_on_hand).where(
+                InventoryItem.product_id == catalog["p1"].id, InventoryItem.warehouse_id == catalog["wa"].id
+            )
+        )
+    assert on_hand == 3  # received exactly once
+
+
+async def test_draft_cannot_be_replanned_into_the_past(catalog: dict) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.schemas.purchasing import PurchaseOrderUpdate
+
+    po = await make_po(catalog)
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
+    with pytest.raises(BusinessRuleError) as exc:
+        await svc_call("update", po["id"], PurchaseOrderUpdate(expected_delivery_date=yesterday))
+    assert exc.value.code == "INVALID_DATE"

@@ -102,6 +102,9 @@ export function useJob(jobId: string | null | undefined) {
     queryFn: () => api.get<Job>(`/jobs/${jobId}`),
     enabled: !!jobId,
     refetchInterval: (q) => {
+      // Stop when the job finished or the job itself can't be fetched (404 / server error);
+      // the error is shown and retry is explicit.
+      if (q.state.status === 'error') return false
       const s = q.state.data?.status
       return s === 'SUCCEEDED' || s === 'FAILED' ? false : 1000
     },

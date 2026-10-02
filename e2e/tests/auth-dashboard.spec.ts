@@ -30,10 +30,21 @@ test('dashboard shows KPIs computed by the API', async ({ page, request }) => {
   await expect(page.getByText('Items needing attention')).toBeVisible()
 })
 
-test('analyst cannot see stock operation actions', async ({ page }) => {
+test('stock operation actions are shown to warehouse staff but not to analysts', async ({ page }) => {
+  // Positive control first, so a renamed button can't make the negative check pass vacuously.
+  await login(page, 'warehouse@demo.example', DEMO_PASSWORD)
+  await page.goto('/inventory')
+  await expect(page.getByRole('button', { name: 'Receive stock' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Transfer' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Actions for / }).first()).toBeVisible()
+
+  await page.context().clearCookies()
+  await page.evaluate(() => localStorage.clear())
   await login(page, 'analyst@demo.example', DEMO_PASSWORD)
   await page.goto('/inventory')
   await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible()
+  await expect(page.getByRole('row').nth(1)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Receive stock' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Transfer' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Actions for / })).toHaveCount(0)
 })

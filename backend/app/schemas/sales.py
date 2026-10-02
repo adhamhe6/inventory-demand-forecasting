@@ -48,18 +48,3 @@ class SaleRead(ORMModel):
     revenue: Decimal
     order_reference: str
     created_at: datetime
-
-
-class ImportRowError(BaseModel):
-    line: int
-    error: str
-    raw: dict[str, str] | None = None
-
-
-class ImportResult(BaseModel):
-    total_rows: int
-    inserted: int
-    duplicates: int
-    invalid: int
-    errors: list[ImportRowError]
-    errors_truncated: bool

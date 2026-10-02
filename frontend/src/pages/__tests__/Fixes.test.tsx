@@ -10,6 +10,7 @@ import { ApiError } from '@/lib/api'
 import type { Product, PurchaseOrder, StockRisk, Supplier, User, Warehouse } from '@/lib/types'
 import { EditDraftDialog } from '../purchasing/EditDraftDialog'
 import PurchaseOrderCreatePage from '../purchasing/PurchaseOrderCreatePage'
+import PurchaseOrderDetailPage from '../purchasing/PurchaseOrderDetailPage'
 import { ForecastsReport, ShortagesReport } from '../reports/PlanningReports'
 import { PurchaseOrdersReport } from '../reports/PurchasingReports'
 import { SalesReport } from '../reports/SalesReport'
@@ -318,5 +319,62 @@ describe('UserDialog', () => {
     apiMock.post.mockRejectedValueOnce(new ApiError(409, 'DUPLICATE', 'Duplicate'))
     await user.click(screen.getByRole('button', { name: 'Create user' }))
     expect(await screen.findByText('A user with this email already exists')).toBeInTheDocument()
+  })
+})
+
+describe('PurchaseOrderDetailPage close short', () => {
+  const partial = {
+    id: 7,
+    po_number: 'PO-7',
+    supplier_id: 6,
+    supplier_name: 'PackRight',
+    warehouse_id: 1,
+    warehouse_code: 'WH-NORTH',
+    status: 'PARTIALLY_RECEIVED',
+    order_date: '2026-09-01',
+    expected_delivery_date: '2026-09-10',
+    received_date: null,
+    total_amount: '10.00',
+    total_units: 10,
+    received_units: 4,
+    line_count: 1,
+    created_at: ts,
+    notes: null,
+    submitted_at: ts,
+    receipts: [],
+    allowed_transitions: ['RECEIVED'],
+    lines: [
+      { id: 1, product_id: 10, sku: 'PKG-BOX-M', product_name: 'Box', quantity_ordered: 10, quantity_received: 4, quantity_outstanding: 6, unit_cost: '1.00', line_total: '10.00' },
+    ],
+  } as unknown as PurchaseOrder
+
+  function renderPO(po: PurchaseOrder) {
+    apiMock.get.mockImplementation(async (path: string) => (path === `/purchase-orders/${po.id}` ? po : page([])))
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    return render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={[`/purchase-orders/${po.id}`]}>
+            <Routes>
+              <Route path="/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  it('offers closing a partially received order short and posts RECEIVED', async () => {
+    apiMock.post.mockResolvedValue({ ...partial, status: 'RECEIVED', allowed_transitions: [] })
+    renderPO(partial)
+    await userEvent.click(await screen.findByRole('button', { name: /close short/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Close order' }))
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/purchase-orders/7/status', { status: 'RECEIVED' }))
+  })
+
+  it('does not offer it for orders that have received nothing', async () => {
+    renderPO({ ...partial, status: 'CONFIRMED', received_units: 0, allowed_transitions: ['CANCELLED', 'PARTIALLY_RECEIVED', 'RECEIVED'] } as PurchaseOrder)
+    await screen.findByRole('heading', { name: 'PO-7' })
+    expect(screen.queryByRole('button', { name: /close short/i })).not.toBeInTheDocument()
   })
 })

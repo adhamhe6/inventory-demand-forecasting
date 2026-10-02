@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Package,
-  PackageSearch,
   Receipt,
   Settings,
   ShieldAlert,
@@ -47,4 +46,3 @@ export const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
 ]
 
 export const ALL_NAV = NAV_SECTIONS.flatMap((s) => s.items)
-export const BrandIcon = PackageSearch

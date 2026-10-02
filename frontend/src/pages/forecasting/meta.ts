@@ -66,6 +66,3 @@ export const SELECTION_METRIC_HELP: Record<string, string> = {
   mae: 'MAE was used to pick the model because demand is regular: it rewards the forecast that is closest on a typical day.',
   rmse: 'RMSE was used to pick the model because demand is intermittent: MAE would favour forecasting zero, which never triggers replenishment.',
 }
-
-/** Sort options for the latest forecasts table (backend-supported fields). */
-export const FORECAST_SORTS = ['generated_at', 'sku', 'total_predicted', 'avg_daily_demand', 'mae', 'wape'] as const

@@ -1,6 +1,6 @@
 import type { FieldValues, Path, UseFormSetError } from 'react-hook-form'
 import { ApiError } from '@/lib/api'
-import type { POStatus, PurchaseOrderSummary, RiskLevel } from '@/lib/types'
+import type { POStatus, PurchaseOrderSummary } from '@/lib/types'
 import { isoDate } from '@/lib/utils'
 
 /** Today as YYYY-MM-DD in the user's local timezone. */
@@ -21,8 +21,6 @@ export function daysPast(iso: string | null | undefined): number {
   const today = new Date(`${todayIso()}T00:00:00`)
   return Math.round((today.getTime() - target.getTime()) / 86_400_000)
 }
-
-export const RISK_RANK: Record<RiskLevel, number> = { NONE: 0, LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
 
 /**
  * Maps a 422 VALIDATION_ERROR's field paths onto react-hook-form fields.

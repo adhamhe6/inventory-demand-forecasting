@@ -172,10 +172,15 @@ class ReplenishmentService:
         results = []
         for r in rows:
             key = (r.product_id, r.warehouse_id)
-            lead = int(r.supplier_lead if r.supplier_lead is not None else r.lead_time_days)
-            if key in forecasts:
-                run_id, pts, avg = forecasts[key]
-                d = float(sum(pts) / len(pts)) if pts else avg
+            # An inactive preferred supplier can't receive orders: recommend without a supplier (the
+            # user picks one) instead of pre-selecting one that makes PO creation fail.
+            supplier_ok = r.supplier_id is not None and r.supplier_status == EntityStatus.ACTIVE
+            lead = int(r.supplier_lead if supplier_ok and r.supplier_lead is not None else r.lead_time_days)
+            # A forecast whose horizon has fully passed has no future points: it's stale, so use
+            # recent sales instead of its old average (and say so via demand_source).
+            if key in forecasts and forecasts[key][1]:
+                run_id, pts, _ = forecasts[key]
+                d = float(sum(pts) / len(pts))
                 source = DemandSource.FORECAST
             elif fallback.get(key, 0) > 0:
                 run_id, pts, d, source = None, [], fallback[key], DemandSource.HISTORICAL_AVERAGE
@@ -217,8 +222,8 @@ class ReplenishmentService:
                     "warehouse_id": r.warehouse_id,
                     "warehouse_code": r.code,
                     "warehouse_name": r.warehouse_name,
-                    "supplier_id": r.supplier_id,
-                    "supplier_name": r.supplier_name,
+                    "supplier_id": r.supplier_id if supplier_ok else None,
+                    "supplier_name": r.supplier_name if supplier_ok else None,
                     "quantity_on_hand": int(r.quantity_on_hand),
                     "available_quantity": available,
                     "inbound_quantity": inb,

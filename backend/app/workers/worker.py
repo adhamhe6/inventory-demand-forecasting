@@ -26,6 +26,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.database import dispose_engine, get_sessionmaker
 from app.db.models import Job, JobStatus, JobType
+from app.services.jobs import JobService
 from app.workers.tasks import execute_job
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ async def startup(ctx: dict[str, Any]) -> None:
 
 
 ORPHAN_GRACE_SECONDS = 60
+QUEUED_GRACE_SECONDS = 600
 # A running job refreshes its heartbeat every HEARTBEAT_INTERVAL; it is considered dead once the
 # key has expired. ARQ's own ``arq:in-progress`` marker is *not* a liveness signal: it is set
 # with the job timeout (1 h) as TTL, so it outlives a crashed worker by up to an hour.
@@ -54,45 +56,60 @@ def heartbeat_key(job_id: str) -> str:
 
 
 async def reap_stale_jobs(ctx: dict[str, Any]) -> None:
-    """Fail RUNNING jobs whose worker is gone, so the UI never shows a job stuck forever.
+    """Fail jobs whose work can no longer happen, so none stays "in progress" forever.
 
-    A job is orphaned when its heartbeat key has expired (the executing worker refreshes it
-    every few seconds) or when it has exceeded the job timeout. Checking a per-job heartbeat
-    rather than "all RUNNING jobs" keeps this safe with several worker replicas. If Redis is
-    unreachable nothing is reaped: absence of evidence is not evidence of a dead worker.
+    * RUNNING jobs whose heartbeat key has expired (the executing worker refreshes it every few
+      seconds) or that exceeded the job timeout. Checking a per-job heartbeat rather than "all
+      RUNNING jobs" keeps this safe with several worker replicas.
+    * QUEUED jobs older than QUEUED_GRACE_SECONDS whose ARQ job key is gone: the queue lost them
+      (e.g. Redis restarted without persistence), so no worker will ever start them. Left alone they
+      would also block their dedupe key, and with it every later run of the same job.
+
+    If Redis is unreachable nothing is reaped: absence of evidence is not evidence of a dead worker.
     """
     now = datetime.now(UTC)
+    redis = ctx["redis"]
     async with ctx["sessionmaker"]() as session:
-        running = (
+        candidates = (
             await session.execute(
-                select(Job.id, Job.started_at).where(
-                    Job.status == JobStatus.RUNNING,
-                    Job.started_at < now - timedelta(seconds=ORPHAN_GRACE_SECONDS),
+                select(Job.id, Job.status, Job.started_at).where(
+                    (
+                        (Job.status == JobStatus.RUNNING)
+                        & (Job.started_at < now - timedelta(seconds=ORPHAN_GRACE_SECONDS))
+                    )
+                    | (
+                        (Job.status == JobStatus.QUEUED)
+                        & (Job.created_at < now - timedelta(seconds=QUEUED_GRACE_SECONDS))
+                    )
                 )
             )
         ).all()
-        orphaned = []
-        for job_id, started_at in running:
-            timed_out = started_at < now - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60)
-            try:
-                alive = await ctx["redis"].exists(heartbeat_key(job_id))
-            except RedisError:
-                logger.warning("reaper skipped: redis unavailable")
-                return
-            if timed_out or not alive:
-                orphaned.append(job_id)
-        if orphaned:
-            await session.execute(
-                update(Job)
-                .where(Job.id.in_(orphaned), Job.status == JobStatus.RUNNING)
-                .values(
-                    status=JobStatus.FAILED,
-                    error="The worker stopped while this job was running; please retry",
-                    finished_at=now,
+        dead_running: list[str] = []
+        lost_queued: list[str] = []
+        try:
+            for job_id, status, started_at in candidates:
+                if status == JobStatus.RUNNING:
+                    timed_out = started_at < now - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60)
+                    if timed_out or not await redis.exists(heartbeat_key(job_id)):
+                        dead_running.append(job_id)
+                elif not await redis.exists(f"arq:job:{job_id}"):
+                    lost_queued.append(job_id)
+        except RedisError:
+            logger.warning("reaper skipped: redis unavailable")
+            return
+        for ids, status, message in (
+            (dead_running, JobStatus.RUNNING, "The worker stopped while this job was running; please retry"),
+            (lost_queued, JobStatus.QUEUED, "The job queue lost this job before it started; please retry"),
+        ):
+            if ids:
+                await session.execute(
+                    update(Job)
+                    .where(Job.id.in_(ids), Job.status == status)
+                    .values(status=JobStatus.FAILED, error=message, finished_at=now)
                 )
-            )
+        if dead_running or lost_queued:
             await session.commit()
-            logger.warning("marked orphaned jobs as failed", extra={"job_ids": orphaned})
+            logger.warning("failed orphaned jobs", extra={"running": dead_running, "queued": lost_queued})
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -151,8 +168,14 @@ async def nightly_forecast(ctx: dict[str, Any]) -> None:
         )
         session.add(job)
         await session.commit()
-    # Enqueue through ARQ (not inline) so the job gets an in-progress marker like any other.
-    await ctx["redis"].enqueue_job("run_job", job.id, _job_id=job.id)
+    # Enqueue through ARQ (not inline) so it runs on a worker with a heartbeat like any other job.
+    try:
+        await ctx["redis"].enqueue_job("run_job", job.id, _job_id=job.id)
+    except RedisError:
+        # Never leave a QUEUED row nobody will run: it would block the dedupe key for later runs.
+        async with ctx["sessionmaker"]() as session:
+            await JobService(session).mark_failed(job.id, "Job queue unavailable; please retry later")
+        logger.exception("nightly forecast could not be enqueued")
 
 
 class WorkerSettings:

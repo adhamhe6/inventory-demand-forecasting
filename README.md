@@ -30,7 +30,7 @@ docker compose up --build
 | What | URL |
 |---|---|
 | Web app | http://localhost:8080 |
-| Swagger UI | http://localhost:8000/docs (also proxied at http://localhost:8080/docs) |
+| Swagger UI | http://localhost:8080/docs (direct: http://localhost:8000/docs — the API port is bound to 127.0.0.1) |
 | ReDoc | http://localhost:8000/redoc |
 | Health | http://localhost:8000/health · readiness: `/health/ready` |
 
@@ -46,7 +46,7 @@ On first start the one-shot **`migrate`** service runs `alembic upgrade head`, c
 
 ```bash
 docker compose exec api alembic upgrade head                     # run migrations
-docker compose exec api alembic revision --autogenerate -m "..." # new migration (review it!)
+cd backend && alembic revision --autogenerate -m "..."      # new migration, run locally so the file lands in the repo (review it!)
 docker compose exec api python -m app.scripts.seed --reset       # re-seed demo data (wipes business data)
 docker compose exec api python -m app.scripts.seed --reset --skip-forecasts
 docker compose logs -f worker                                    # background job logs
@@ -59,7 +59,7 @@ docker compose up -d --scale worker=3                            # more workers
 
 ```mermaid
 flowchart LR
-    U[Browser<br/>React SPA] -->|HTTPS| N[nginx<br/>static SPA + reverse proxy]
+    U[Browser<br/>React SPA] -->|HTTP :8080<br/>TLS terminated upstream| N[nginx<br/>static SPA + reverse proxy]
     N -->|/api| A[FastAPI<br/>uvicorn x2]
     A -->|asyncpg| P[(PostgreSQL)]
     A -->|cache · rate limit · enqueue| R[(Redis)]
@@ -98,8 +98,8 @@ There is intentionally **no separate repository layer**: the SQLAlchemy `AsyncSe
 
 - **Inventory** per product × warehouse: on hand, reserved, available (generated column), effective safety stock / reorder point (per-warehouse overrides), status (`HEALTHY`, `LOW_STOCK`, `CRITICAL`, `OUT_OF_STOCK`), stock value.
 - **Warehouse operations** — receive, issue, adjust (reason required), transfer (atomic), reserve / release, customer returns. All write an **immutable ledger** row with balance-after, actor, reference and a shared `transfer_group` for transfers.
-- **Purchasing** — suppliers, POs with lines, controlled workflow, partial and full **idempotent receiving** with receipt history, supplier performance (on-time rate, actual lead time, fill rate, spend).
-- **Sales** — record sales (optionally issuing stock atomically) and **stream-import CSV history** as a background job with row-level error reports.
+- **Purchasing** — suppliers, POs with lines, controlled workflow, partial and full **idempotent receiving** with receipt history, *close short* for orders the supplier won't complete, supplier performance (on-time rate, actual lead time, fill rate, spend).
+- **Sales** — record sales (optionally issuing stock atomically) and **stream-import CSV history** as a background job with row-level error reports. Imported sales are demand history only: they never change stock.
 - **Demand forecasting** — per item, background job, stored results with accuracy metrics and prediction intervals; nightly re-forecast cron.
 - **Shortage detection & restocking** — risk levels with human-readable reasons, recommended order quantities, one-click draft POs grouped by supplier × warehouse.
 - **Reports & dashboard** — KPIs, sales trend, reconstructed inventory-value trend, forecast aggregate, risk distribution, valuation, supplier performance, PO status, low stock; CSV exports.
@@ -139,18 +139,18 @@ REST under `/api/v1`, fully documented in Swagger (tags, summaries, response mod
 | Auth & users | `POST /auth/login` (JSON), `POST /auth/token` (OAuth2 form, used by Swagger), `GET /auth/me`, `GET /auth/permissions`, `GET/POST /users`, `PATCH /users/{id}` |
 | Catalog | `/products` (+ `/categories`, `/{id}` with stock per warehouse), `/warehouses` (+ `/summary`), `/suppliers` (+ stats) |
 | Inventory | `GET /inventory`, `GET/PATCH /inventory/{id}`, `GET /inventory/transactions`, `POST /inventory/{receive,issue,adjust,transfer,reserve,release,return}` |
-| Purchasing | `/purchase-orders` CRUD (draft), `POST /{id}/status`, `POST /{id}/receive` |
+| Purchasing | `/purchase-orders` CRUD (draft), `POST /{id}/status` (submit, confirm, cancel, close short), `POST /{id}/receive` |
 | Sales | `GET/POST /sales`, `POST /sales/import` (multipart CSV → job) |
 | Forecasting | `POST /forecasts/run`, `POST /forecasts/run-all`, `GET /forecasts`, `GET /forecasts/item`, `GET /forecasts/{id}` |
 | Planning | `GET /shortages`, `GET /restocking` (both paginated + sortable, with a `summary` over all matching rows), `POST /restocking/purchase-orders` |
-| Meta | `GET /meta` (public: version, environment, demo mode, upload limit, forecast interval level) |
+| Meta | `GET /meta` (public: app name, version, environment, demo mode, upload limit, forecast interval level, review period) |
 | Reports | `/reports/{dashboard,low-stock,inventory-value,inventory-trend,sales-summary,supplier-performance,purchase-orders,forecast-accuracy,forecast-aggregate}` |
 | Jobs | `GET /jobs`, `GET /jobs/{id}` |
 
 Conventions:
 - Lists: `?page=&page_size=` (≤ 200) → `{items, total, page, page_size, pages}`; `?sort=field` / `?sort=-field` against an allow-list; filters per resource; `?format=csv` on exportable lists/reports (formula-injection-safe).
 - Errors: `{"error": {"code": "INSUFFICIENT_STOCK", "message": "...", "details": {...}}, "request_id": "..."}` — 400 bad request/sort, 401, 403, 404, 409 state conflicts (illegal PO transition, duplicate, idempotency-key reuse), 422 schema validation (`VALIDATION_ERROR`) **and** business-rule violations (`INSUFFICIENT_STOCK`, over-receipt, over-release …), 429, 503. 500s never leak internals.
-- `Idempotency-Key` header on stock operations and sales; `receipt_reference` on PO receiving.
+- `Idempotency-Key` header on stock operations and sales; `receipt_reference` (or `Idempotency-Key`) on PO receiving — replaying it with different lines is a 409.
 - Every response carries `X-Request-ID` (also in every log line).
 
 ---
@@ -161,7 +161,7 @@ Implemented in `app/forecasting/` as a pure, DB-independent pipeline (unit-teste
 
 1. **Validation & aggregation** — sales are summed per UTC day for one (product, warehouse) and **zero-filled** (a day without sales is real zero demand). The window starts at the item's first sale (no fake leading zeros) and ends yesterday (last complete day). Negative/NaN quantities are rejected.
 2. **Profiling** — the Syntetos-Boylan ADI/CV² scheme classifies demand as *smooth, erratic, intermittent, lumpy* or *no demand*.
-3. **Candidate models** (pluggable registry, `ForecastModel.fit/predict`):
+3. **Candidate models** (pluggable registry, `ForecastModel.fit/predict`) — three compete per series, chosen by its profile: moving average, seasonal naive and Holt-Winters for smooth/erratic demand; moving average, seasonal naive and Croston-SBA for intermittent/lumpy demand:
    - *Moving average* (28 d) — transparent baseline;
    - *Seasonal naive* — weekday profile averaged over the last 4 weeks;
    - *Holt-Winters* (statsmodels) — additive, damped trend + weekly seasonality (needs ≥ 56 days);
@@ -185,19 +185,19 @@ Per product × warehouse (see `app/services/replenishment.py`):
 
 | Symbol | Meaning |
 |---|---|
-| `d` | expected daily demand — mean of the latest stored forecast's *future* points; falls back to the trailing 28-day sales average (flagged `HISTORICAL_AVERAGE`) |
-| `L` | lead time — preferred supplier's lead time, else the product's |
+| `d` | expected daily demand — mean of the latest stored forecast's *future* points; if there is no forecast, or its horizon has fully passed, the trailing 28-day sales average (flagged `HISTORICAL_AVERAGE`) |
+| `L` | lead time — preferred supplier's lead time if that supplier is active, else the product's (an inactive supplier is also not pre-selected on recommendations) |
 | `D_L` | demand during lead time = sum of the next `L` forecast days (extended with `d` past the horizon) |
 | `SS` | safety stock (warehouse override or product default) |
 | `inbound` | ordered − received on open POs (DRAFT…PARTIALLY_RECEIVED) |
-| `inbound_L` | submitted/confirmed PO units expected **within the lead time** (drafts haven't been sent; later deliveries can't prevent this shortage) |
+| `inbound_L` | submitted/confirmed/partially-received PO units expected **within the lead time** or with no date (drafts haven't been sent; later deliveries can't prevent this shortage) |
 | `IP` | inventory position: `available + inbound` for recommendations, `available + inbound_L` for risk |
 | `ROP` | reorder point = max(static ROP, `min_stock`, `D_L + SS`) |
 | `S` | order-up-to level = `ROP + max(d × R, 1)` (R = review period, default 14 days; the +1 floor keeps zero-demand items from being re-recommended once ordered) |
 
-**Risk:** `CRITICAL` if nothing is available or `IP < D_L` (will stock out before any new order can arrive) · `HIGH` if `IP < D_L + SS` (safety stock breached within lead time) · `MEDIUM` if `IP ≤ ROP` · `LOW` if `IP ≤ ROP + d×R` · otherwise `NONE`. **Timing check:** if expected demand until the *next scheduled delivery* exceeds available stock, the item stocks out before that delivery lands, so risk is raised to at least `HIGH` ("expected to run out around Oct 6, before the next delivery on Oct 9") even when the inbound quantity is large. `min_stock` is also a hard floor for the inventory *stock status* (separate from risk): available stock at or below `max(safety stock, min_stock)` is shown as `CRITICAL`. Each item carries days of cover, a projected stock-out date, the next inbound date and a plain-English reason/action.
+**Risk** (items with no demand, safety stock or reorder point are `NONE`): `CRITICAL` if nothing is available or `IP < D_L` (will stock out before any new order can arrive) · `HIGH` if `IP < D_L + SS` (safety stock breached within lead time) · `MEDIUM` if `IP ≤ ROP` · `LOW` if `IP ≤ ROP + d×R` · otherwise `NONE`. **Timing check:** if expected demand until the *next scheduled delivery* exceeds available stock, the item stocks out before that delivery lands, so risk is raised to at least `HIGH` ("expected to run out around Oct 6, before the next delivery on Oct 9") even when the inbound quantity is large. `min_stock` is also a hard floor for the inventory *stock status* (separate from risk): available stock at or below `max(safety stock, min_stock)` is shown as `CRITICAL`. Each item carries days of cover, a projected stock-out date, the next inbound date and a plain-English reason/action.
 
-**Recommendation:** when `IP ≤ ROP`, order `ceil(S − IP)`. Because open POs — **including drafts** — are part of `IP`, an item that was already ordered (or drafted from a previous recommendation) is not recommended again. `POST /restocking/purchase-orders` groups selections into one DRAFT PO per supplier × warehouse, atomically.
+**Recommendation:** when `IP ≤ ROP` (and the item has demand or a reorder point), order `max(ceil(S − IP), 1)`. Because open POs — **including drafts** — are part of `IP`, an item that was already ordered (or drafted from a previous recommendation) is not recommended again. `POST /restocking/purchase-orders` groups selections into one DRAFT PO per supplier × warehouse, atomically.
 
 ---
 
@@ -205,11 +205,11 @@ Per product × warehouse (see `app/services/replenishment.py`):
 
 **Redis cache — versioned namespaces.** Each data domain (`catalog`, `inventory`, `sales`, `purchasing`, `forecasts`) has a version counter. A cached value's key embeds the versions of every domain it depends on; a write does `INCR` on its domains *after commit*, making all dependent keys unreachable in O(1) (no `KEYS`/`SCAN`, no missed dependants). TTLs bound memory. Cached: dashboard, replenishment analysis (shared by shortages/restocking/dashboard), report aggregates, per-item forecast + history. Not cached: paginated CRUD lists (cheap, indexed, and need read-your-writes).
 
-**Redis failure handling.** Cache and rate limiter **fail open**: on a Redis error the value is computed from PostgreSQL, a warning is logged, and a 15 s circuit breaker skips Redis to avoid paying timeouts on every request. Readiness reports Redis as degraded but only PostgreSQL gates readiness. Job submission returns 503 if the queue is unreachable (and marks the job failed) instead of silently dropping work. All of this is covered by tests that point the app at a dead Redis.
+**Redis failure handling.** Cache and rate limiter **fail open**: on a Redis error the value is computed from PostgreSQL, a warning is logged, and a 15 s circuit breaker skips Redis to avoid paying timeouts on every request. Readiness reports `redis: unavailable` in its checks while staying `ok`: only PostgreSQL gates readiness. Job submission returns 503 if the queue is unreachable (and marks the job failed) instead of silently dropping work. All of this is covered by tests that point the app at a dead Redis.
 
-**Background jobs — why ARQ.** The API is asyncio-native; ARQ is a small asyncio job queue on Redis, so the worker reuses the same async services/sessions/cache code. Celery would add a sync-first runtime and more operational surface for no benefit at this scale. Job state is persisted in PostgreSQL (queryable, survives Redis restarts); ARQ is only the transport (`_job_id` = our job id, so enqueueing is idempotent too). While a job runs, its worker refreshes a short-lived Redis heartbeat (`job:heartbeat:<id>`, 10 s interval, 45 s TTL); a reaper (worker startup + every 2 min) fails RUNNING jobs whose heartbeat has lapsed, so a crashed worker's job turns `FAILED` ("please retry") within ~2 minutes instead of blocking deduplicated re-runs. ARQ's own `in-progress` marker is not used for liveness because it lives for the whole job timeout (1 h). Verified live by killing the worker mid-job. Tests use an **inline dispatcher** (`JOB_BACKEND=inline`), the Docker stack uses the real worker.
+**Background jobs — why ARQ.** The API is asyncio-native; ARQ is a small asyncio job queue on Redis, so the worker reuses the same async services/sessions/cache code. Celery would add a sync-first runtime and more operational surface for no benefit at this scale. Job state is persisted in PostgreSQL (queryable, survives Redis restarts); ARQ is only the transport (`_job_id` = our job id, so enqueueing is idempotent too). While a job runs, its worker refreshes a short-lived Redis heartbeat (`job:heartbeat:<id>`, 10 s interval, 45 s TTL); a reaper (worker startup + every 2 min) fails RUNNING jobs whose heartbeat has lapsed, so a crashed worker's job turns `FAILED` ("please retry") within ~2 minutes instead of blocking deduplicated re-runs. It also fails jobs still `QUEUED` after 10 minutes whose ARQ job key is gone (the queue lost them), and the nightly cron marks its job failed if it cannot be enqueued. ARQ's own `in-progress` marker is not used for liveness because it lives for the whole job timeout (1 h). Verified live by killing the worker mid-job. Tests use an **inline dispatcher** (`JOB_BACKEND=inline`), the Docker stack uses the real worker.
 
-**Idempotency.** `Idempotency-Key` on stock operations/sales stores the response in the *same DB transaction* as the effect (a concurrent duplicate loses on the primary key and rolls back); reusing a key with a different payload is a 409. PO receiving is idempotent per `receipt_reference`. CSV imports are idempotent via the sales natural key. Forecast/import jobs are de-duplicated by a partial unique index.
+**Idempotency.** `Idempotency-Key` on stock operations/sales stores the response in the *same DB transaction* as the effect (a concurrent duplicate loses on the primary key and rolls back); reusing a key with a different payload is a 409. PO receiving is idempotent per `receipt_reference` (same lines → original receipt; different lines → 409). CSV imports are idempotent via the sales natural key. Forecast/import jobs are de-duplicated by a partial unique index.
 
 **CSV import** streams the uploaded file to disk in 1 MB chunks (size-limited, random server-side filename — the client name is never used as a path), then the worker reads it line-by-line and inserts in 1,000-row batches with `ON CONFLICT DO NOTHING`, committing per batch, reporting progress, and returning counts + the first 100 row errors with line numbers. Required columns: `sku, warehouse_code, sold_at, quantity, order_reference`; optional `unit_price`.
 
@@ -220,12 +220,12 @@ Per product × warehouse (see `app/services/replenishment.py`):
 - Passwords hashed with **Argon2id**; unknown-user logins still burn a hash (no user-enumeration timing).
 - **JWT** (HS256) with explicit algorithm allow-list (`alg=none`/confusion rejected), `exp/iat/nbf/jti`, and a DB check on every request that the user still exists and is active.
 - **RBAC**: `ADMIN`, `WAREHOUSE_MANAGER`, `INVENTORY_MANAGER`, `PURCHASING_MANAGER`, `ANALYST` mapped to fine-grained permissions (`app/core/security.py`); enforced per endpoint, mirrored in the UI only for UX.
-- **Login rate limiting** of *failed* attempts in Redis per account *and* per IP (so rotating IPs can't brute-force one account); shared by `/auth/login` and the Swagger `/auth/token` form.
+- **Login rate limiting** of *failed* attempts in Redis per account *and* per IP (so rotating IPs can't brute-force one account); shared by `/auth/login` and the Swagger `/auth/token` form. Client IPs come from `X-Forwarded-For` only when the request arrives from a private network (nginx); the API port is published on 127.0.0.1 only.
 - Input validation everywhere (Pydantic + DB constraints); SQL only via SQLAlchemy bound parameters; sort fields via allow-lists; LIKE wildcards escaped.
 - Uploads: extension + binary sniff + size limit + random filenames; CSV exports neutralise formula injection.
-- Config only from env; `ENVIRONMENT=production` refuses to start with a weak/default `SECRET_KEY`, `DEBUG=true`, or wildcard CORS.
+- Config only from env; `ENVIRONMENT=production` refuses to start with a short or `change-me…` `SECRET_KEY` (including the `.env.example` placeholder), a published default `FIRST_ADMIN_PASSWORD`, `SEED_DEMO_DATA=true` (demo accounts have a published password), `DEBUG=true`, or wildcard CORS. Swagger only shows demo credentials when demo data is seeded.
 - Logs are structured JSON with request/job ids; keys that look like secrets are redacted; passwords/tokens are never logged.
-- nginx adds CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`; containers run as non-root.
+- nginx adds CSP (no third-party origins; fonts are self-hosted), `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`. The backend containers (`migrate`, `api`, `worker`) run as a non-root user; the stock nginx image's master process runs as root and its workers as `nginx`.
 
 See [docs/security-review.md](docs/security-review.md) for the review checklist and residual risks.
 
@@ -234,7 +234,7 @@ See [docs/security-review.md](docs/security-review.md) for the review checklist 
 ## Testing
 
 ```bash
-# Backend (needs PostgreSQL + Redis; defaults match docker-compose / CI service containers)
+# Backend (needs PostgreSQL + Redis; the defaults below match the CI service containers)
 cd backend
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.lock && pip install -e ".[dev]"
@@ -261,7 +261,7 @@ E2E_BASE_URL=http://localhost:8080 npx playwright test
 | Integration | every stock operation, DB constraint enforcement via raw SQL, concurrency (overselling, deadlocks), PO workflow + idempotent and concurrent receiving, cache hit/invalidation, Redis-down behaviour, rate limiter, streaming CSV import (dupes, malformed, binary, 2.5k rows), forecast persistence/pruning |
 | API e2e | the 4 required workflows; auth failures, 7 role/permission denials, validation format, duplicates, invalid references, insufficient stock, invalid transfers/transitions, duplicate receiving, idempotency replay/mismatch, malformed CSV, DB failure → 503, Redis down → still serving, unexpected exceptions → safe 500, cache invalidation, reports |
 | Frontend | form validation, server-error mapping, critical components & flows (Vitest + Testing Library) |
-| Browser | Playwright against the Docker stack: login/redirects, dashboard KPIs vs API, permissions, PO create → submit → receive → inventory updated, forecast job → worker → chart, recommendation → PO (no duplicate), transfer, reserve/release, insufficient-stock error, and on a phone (Pixel 7) no horizontal overflow on 28 routes + drawer navigation |
+| Browser | Playwright against the Docker stack: login/redirects, dashboard KPIs vs API, permissions, PO create → submit → receive → inventory updated, forecast job → worker → chart, recommendation → PO (no duplicate), transfer, reserve/release, insufficient-stock error, and on a phone (Pixel 7) no horizontal overflow on 23 routes + drawer navigation |
 | Live system | `scripts/verify/` — 42 HTTP/Redis/DB checks, SQL ledger invariants, independent re-computation of every replenishment number; see [docs/verification.md](docs/verification.md) |
 
 ---
@@ -269,9 +269,9 @@ E2E_BASE_URL=http://localhost:8080 npx playwright test
 ## Local development without Docker
 
 ```bash
-# infrastructure only
-docker compose up -d postgres redis   # (or local services)
-cd backend && cp ../.env.example .env  # point DATABASE_URL/REDIS_URL at localhost
+# infrastructure: local PostgreSQL 16 + Redis 7. The compose services don't publish their ports;
+# to use them instead, add `ports: ["5432:5432"]` / `["6379:6379"]` in a docker-compose.override.yml.
+cd backend && cp ../.env.example .env  # then set DATABASE_URL / REDIS_URL to your local services
 alembic upgrade head
 SEED_DEMO_DATA=true python -m app.scripts.bootstrap
 uvicorn app.main:app --reload                       # API on :8000
@@ -300,6 +300,11 @@ cd ../frontend && npm ci && npm run dev             # UI on :5173 (proxies /api,
 - Quantities are integer units; no unit-of-measure conversions, lots/serials or bin locations.
 - Forecasts ignore price, promotions and holidays (exogenous regressors would be the next model in the registry).
 - No multi-currency or multi-tenant support.
-- Access tokens can't be revoked before expiry except by deactivating the user (refresh-token rotation/denylist would address this).
+- Access tokens can't be revoked before expiry except by deactivating the user — not even by a password change (refresh-token rotation/denylist would address this).
 - On phones, wide tables (stock risks, restocking, reports) scroll horizontally inside their card; secondary columns are hidden below tablet width rather than re-laid out as cards.
+- Reservations can be placed and released, but there is no "ship from reservation" operation: fulfilling reserved stock is release + issue (two requests).
+- Active/inactive rules are enforced where documents are created (POs, recommendations, stock movements into a warehouse), not everywhere: e.g. receiving a PO into a warehouse deactivated after ordering is allowed, and an inactive product can still be moved or forecast.
+- Any signed-in user can list all background jobs (params and import error rows included); there is no per-owner job visibility.
+- `idempotency_records` and finished `jobs` rows are never purged (a periodic cleanup would be the production follow-up). Upload files whose job could not be dispatched are not swept.
+- `POST /forecasts/run-all` is de-duplicated per warehouse scope, not per horizon: a 90-day request while a 30-day run is active returns the active job.
 - The login rate limiter fails open when Redis is down (availability over strictness; logged).

@@ -158,7 +158,8 @@ export async function downloadCsv(path: string, query: Query = {}, fallbackName 
   document.body.appendChild(a)
   a.click()
   a.remove()
-  URL.revokeObjectURL(url)
+  // Revoking synchronously can cancel the download in some browsers; let it start first.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 export function newIdempotencyKey(): string {

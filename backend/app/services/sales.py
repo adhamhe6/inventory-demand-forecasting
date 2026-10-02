@@ -205,48 +205,58 @@ class SalesService:
             handle = path.open("r", encoding="utf-8-sig", newline="")
         except OSError as exc:
             raise CsvFormatError(f"Cannot open import file: {exc}") from exc
-        with handle:
-            source = _CountingLines(handle)
-            reader = csv.DictReader(source)
-            try:
-                header = {h.strip().lower() for h in (reader.fieldnames or []) if h}
-                missing = REQUIRED_COLUMNS - header
-                if missing:
-                    raise CsvFormatError(
-                        f"CSV is missing required column(s): {', '.join(sorted(missing))}",
-                        details={"required": sorted(REQUIRED_COLUMNS), "optional": sorted(OPTIONAL_COLUMNS)},
+        try:
+            with handle:
+                source = _CountingLines(handle)
+                reader = csv.DictReader(source)
+                try:
+                    header = {h.strip().lower() for h in (reader.fieldnames or []) if h}
+                    missing = REQUIRED_COLUMNS - header
+                    if missing:
+                        raise CsvFormatError(
+                            f"CSV is missing required column(s): {', '.join(sorted(missing))}",
+                            details={
+                                "required": sorted(REQUIRED_COLUMNS),
+                                "optional": sorted(OPTIONAL_COLUMNS),
+                            },
+                        )
+                    batch: list[dict[str, Any]] = []
+                    for raw in reader:
+                        line = reader.line_num
+                        stats["total_rows"] += 1
+                        row = {
+                            (k or "").strip().lower(): (v or "").strip()
+                            for k, v in raw.items()
+                            if k is not None
+                        }
+                        if None in raw:
+                            record_error(line, "row has more fields than the header", row)
+                            continue
+                        try:
+                            batch.append(self._validate_row(row, products, warehouses, prices, now))
+                        except ValueError as exc:
+                            record_error(line, str(exc), row)
+                            continue
+                        if len(batch) >= BATCH_SIZE:
+                            await self._insert_batch(batch, stats)
+                            batch = []
+                            if progress:
+                                await progress(
+                                    min(99, int(source.consumed * 100 / total_bytes)), stats["total_rows"]
+                                )
+                except (csv.Error, UnicodeDecodeError) as exc:
+                    reason = (
+                        "file is not valid UTF-8 text" if isinstance(exc, UnicodeDecodeError) else str(exc)
                     )
-                batch: list[dict[str, Any]] = []
-                for raw in reader:
-                    line = reader.line_num
-                    stats["total_rows"] += 1
-                    row = {
-                        (k or "").strip().lower(): (v or "").strip() for k, v in raw.items() if k is not None
-                    }
-                    if None in raw:
-                        record_error(line, "row has more fields than the header", row)
-                        continue
-                    try:
-                        batch.append(self._validate_row(row, products, warehouses, prices, now))
-                    except ValueError as exc:
-                        record_error(line, str(exc), row)
-                        continue
-                    if len(batch) >= BATCH_SIZE:
-                        await self._insert_batch(batch, stats)
-                        batch = []
-                        if progress:
-                            await progress(
-                                min(99, int(source.consumed * 100 / total_bytes)), stats["total_rows"]
-                            )
-            except (csv.Error, UnicodeDecodeError) as exc:
-                reason = "file is not valid UTF-8 text" if isinstance(exc, UnicodeDecodeError) else str(exc)
-                raise CsvFormatError(
-                    f"Malformed CSV near line {reader.line_num + 1}: {reason}", details={**stats}
-                ) from exc
-            if batch:
-                await self._insert_batch(batch, stats)
-        if stats["inserted"]:
-            await self.cache.invalidate(CacheDomain.SALES)
+                    raise CsvFormatError(
+                        f"Malformed CSV near line {reader.line_num + 1}: {reason}", details={**stats}
+                    ) from exc
+                if batch:
+                    await self._insert_batch(batch, stats)
+        finally:
+            # Batches commit as they go, so a file that fails halfway has still changed sales data.
+            if stats["inserted"]:
+                await self.cache.invalidate(CacheDomain.SALES)
         logger.info("sales import finished", extra={**stats})
         return {**stats, "errors": errors, "errors_truncated": stats["invalid"] > len(errors)}
 

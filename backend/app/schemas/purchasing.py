@@ -54,7 +54,8 @@ class PurchaseOrderUpdate(BaseModel):
 
 class POStatusChange(BaseModel):
     status: PurchaseOrderStatus = Field(
-        description="Target status. Allowed: SUBMITTED, CONFIRMED, CANCELLED (receiving uses /receive)"
+        description="Target status: SUBMITTED, CONFIRMED, CANCELLED (before any receipt), or RECEIVED to "
+        "close a PARTIALLY_RECEIVED order short. Goods are received through /receive."
     )
     note: str | None = Field(default=None, max_length=1000)
 

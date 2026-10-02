@@ -58,5 +58,14 @@ class UserUpdate(BaseModel):
     def _pw(cls, v: str | None) -> str | None:
         return None if v is None else _check_password_strength(v)
 
+    @field_validator("full_name", "role", "is_active")
+    @classmethod
+    def _not_null(cls, v: object) -> object:
+        # Omitting a field leaves it unchanged; an explicit null is a client error (422), not a 409
+        # from the NOT NULL constraint.
+        if v is None:
+            raise ValueError("must not be null; omit the field to leave it unchanged")
+        return v
+
 
 TokenResponse.model_rebuild()

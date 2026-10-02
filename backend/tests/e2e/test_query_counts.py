@@ -2,13 +2,23 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import event
 
 from app.db.database import get_engine, get_sessionmaker
-from app.db.models import Product, PurchaseOrder, PurchaseOrderLine, Supplier, Warehouse
+from app.db.models import (
+    ForecastPoint,
+    ForecastRun,
+    InventoryItem,
+    Product,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    Supplier,
+    Warehouse,
+)
 
 from .helpers import ok
 
@@ -32,6 +42,9 @@ def count_queries() -> Iterator[list[str]]:
 
 
 async def add_rows(n: int, offset: int) -> None:
+    """n products, each with a PO, an inventory item and a forecast run, so every endpoint under
+    test returns n more rows (inventory, forecasts, restocking and shortages included)."""
+    today = datetime.now(UTC).date()
     async with get_sessionmaker()() as s:
         sup = Supplier(name=f"Sup {offset}", lead_time_days=3)
         wh = Warehouse(code=f"W{offset}", name="W")
@@ -46,7 +59,28 @@ async def add_rows(n: int, offset: int) -> None:
                     po_number=f"PO-{offset}-{i}",
                     supplier_id=sup.id,
                     warehouse_id=wh.id,
-                    lines=[PurchaseOrderLine(product_id=p.id, quantity_ordered=5, unit_cost=Decimal(1))],
+                    lines=[PurchaseOrderLine(product_id=p.id, quantity_ordered=1, unit_cost=Decimal(1))],
+                )
+            )
+            s.add(InventoryItem(product_id=p.id, warehouse_id=wh.id, quantity_on_hand=0))
+            s.add(
+                ForecastRun(
+                    product_id=p.id,
+                    warehouse_id=wh.id,
+                    horizon_days=3,
+                    model_name="moving_average",
+                    model_version="1",
+                    history_days=30,
+                    total_predicted=6.0,
+                    avg_daily_demand=2.0,
+                    metrics={"mae": 1.0},
+                    details={},
+                    points=[
+                        ForecastPoint(
+                            forecast_date=today + timedelta(days=d), predicted=2.0, lower=1.0, upper=3.0
+                        )
+                        for d in range(3)
+                    ],
                 )
             )
         await s.commit()
@@ -73,6 +107,8 @@ async def test_query_count_is_independent_of_row_count(client, auth, path: str) 
 
     await get_cache().invalidate(*CacheDomain)
     with count_queries() as large:
-        ok(await client.get(f"{API}{path}", headers=h))
+        body = ok(await client.get(f"{API}{path}", headers=h))
+    # Guard against a vacuous comparison: the endpoint must actually return the added rows.
+    assert body["total"] >= 33, f"{path} returned {body['total']} rows"
     assert len(large) == len(small), f"{path}: {len(small)} → {len(large)} queries (N+1?)"
     assert len(large) <= 10

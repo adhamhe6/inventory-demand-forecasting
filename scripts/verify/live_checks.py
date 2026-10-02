@@ -192,7 +192,7 @@ check(
     f"{oh_before}->{oh_after}",
 )
 r3 = c.post("/inventory/receive", json={**mv, "quantity": 8}, headers={**WH, "Idempotency-Key": key})
-check("idempotency-key reuse with different body -> 409/422", r3.status_code in (409, 422), r3.status_code)
+check("idempotency-key reuse with different body -> 409", r3.status_code == 409, r3.status_code)
 check("cache keys populated", before_keys > 0, before_keys)
 v_after = int(redis("GET", "cache:ver:inventory") or 0)
 check("write bumps cache:ver:inventory", v_after > v_before, f"{v_before}->{v_after}")
@@ -291,15 +291,41 @@ check(
     f"{oh0}->{oh1} {ra.status_code}/{rb.status_code}",
 )
 r = c.post(
+    f"/purchase-orders/{po['id']}/receive",
+    json={"lines": [{"line_id": line, "quantity": 5}], "receipt_reference": "GRN-LIVE-1"},
+    headers=WH,
+)
+check(
+    "same GRN with a different delivery -> 409, stock unchanged",
+    r.status_code == 409 and c.get(f"/inventory/{item['id']}", headers=AN).json()["quantity_on_hand"] == oh1,
+    r.status_code,
+)
+r = c.post(
     f"/purchase-orders/{po['id']}/receive", json={"lines": [{"line_id": line, "quantity": 7}]}, headers=WH
 )
 check("over-receive -> 422 business rule", r.status_code == 422, r.json()["error"]["code"])
 r = c.post(f"/purchase-orders/{po['id']}/status", json={"status": "DRAFT"}, headers=PUR)
-check("illegal status transition rejected", r.status_code in (409, 422), r.status_code)
-c.post(f"/purchase-orders/{po['id']}/receive", json={}, headers=WH)
+check("illegal status transition -> 409", r.status_code == 409, r.status_code)
+# The supplier won't ship the remaining 6: close short. It must stop counting as inbound.
+inbound_before = next(
+    x["inbound_quantity"]
+    for x in c.get(
+        "/shortages", params={"min_risk": "NONE", "page_size": 200, "search": item["sku"]}, headers=AN
+    ).json()["items"]
+    if x["inventory_item_id"] == item["id"]
+)
+r = c.post(f"/purchase-orders/{po['id']}/status", json={"status": "RECEIVED"}, headers=PUR)
+inbound_after = next(
+    x["inbound_quantity"]
+    for x in c.get(
+        "/shortages", params={"min_risk": "NONE", "page_size": 200, "search": item["sku"]}, headers=AN
+    ).json()["items"]
+    if x["inventory_item_id"] == item["id"]
+)
 check(
-    "receive remaining -> RECEIVED",
-    c.get(f"/purchase-orders/{po['id']}", headers=AN).json()["status"] == "RECEIVED",
+    "close short -> RECEIVED, outstanding no longer inbound",
+    r.status_code == 200 and r.json()["status"] == "RECEIVED" and inbound_after == inbound_before - 6,
+    f"{r.status_code} inbound {inbound_before}->{inbound_after}",
 )
 
 

@@ -2,6 +2,8 @@
 
 Starting point: an empty repository (README only). Everything below is built from scratch.
 
+> This is the plan written before implementation, kept for context. Where it differs from the code, the README and the code are authoritative; known differences are corrected inline below.
+
 ## Architecture
 
 ```
@@ -50,11 +52,11 @@ REST under `/api/v1`, JSON everywhere, consistent envelope for lists (`items,tot
 
 ## Forecasting approach
 
-Daily demand per (product, warehouse), zero-filled. Candidate models: moving average (baseline), seasonal naive, Holt-Winters (damped trend + weekly seasonality) and Croston-SBA for intermittent demand. Rolling-origin holdout backtest picks the model with lowest MAE; metrics stored: MAE, RMSE, WAPE, MAPE (non-zero actuals only), bias. Residual-based prediction intervals. Strategy is pluggable through a registry.
+Daily demand per (product, warehouse), zero-filled. Candidate models: moving average (baseline), seasonal naive, Holt-Winters (damped trend + weekly seasonality) and Croston-SBA for intermittent demand. Rolling-origin holdout backtest picks the model with lowest MAE (RMSE for intermittent/lumpy demand, where MAE would favour forecasting zero); metrics stored: MAE, RMSE, WAPE, MAPE (non-zero actuals only), bias. Residual-based prediction intervals. Strategy is pluggable through a registry.
 
 ## Background jobs
 
-ARQ (async-native, Redis-based, tiny footprint, shares async services) instead of Celery (heavier, sync-first). Jobs: `forecast_item`, `forecast_all` (also nightly cron), `import_sales_csv`. Job state persisted in `jobs`; duplicate in-flight jobs are de-duplicated by a dedupe key. Tests use an inline dispatcher.
+ARQ (async-native, Redis-based, tiny footprint, shares async services) instead of Celery (heavier, sync-first). Jobs (as built: one ARQ function `run_job` dispatching on `JobType` `FORECAST_ITEM`, `FORECAST_ALL` — also the nightly cron — and `IMPORT_SALES`; a per-job heartbeat lets a reaper fail jobs whose worker died). Job state persisted in `jobs`; duplicate in-flight jobs are de-duplicated by a dedupe key. Tests use an inline dispatcher.
 
 ## Caching strategy
 

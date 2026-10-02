@@ -106,3 +106,64 @@ async def test_forecast_all_isolated_failures(catalog: dict) -> None:
     await seed_sales(catalog, 60)
     result = await ForecastService.forecast_all(get_sessionmaker(), get_cache(), 7)
     assert result["succeeded"] == result["items"] >= 1 and result["failed"] == 0
+
+
+async def _analysis_row(catalog: dict) -> dict:
+    from app.cache.redis_cache import CacheDomain
+    from app.services.replenishment import ReplenishmentService
+
+    await get_cache().invalidate(*CacheDomain)
+    async with get_sessionmaker()() as s:
+        rows = await ReplenishmentService(s, get_cache()).analyze()
+    return next(
+        r for r in rows if (r["product_id"], r["warehouse_id"]) == (catalog["p1"].id, catalog["wa"].id)
+    )
+
+
+async def test_replenishment_ignores_stale_forecasts_and_inactive_suppliers(catalog: dict) -> None:
+    from sqlalchemy import text
+
+    from app.db.models import EntityStatus, InventoryItem, Supplier
+
+    await seed_sales(catalog)
+    async with get_sessionmaker()() as s:
+        s.add(InventoryItem(product_id=catalog["p1"].id, warehouse_id=catalog["wa"].id, quantity_on_hand=3))
+        await s.commit()
+        run = await ForecastService(s, get_cache()).forecast_item(catalog["p1"].id, catalog["wa"].id, 14)
+    row = await _analysis_row(catalog)
+    assert row["demand_source"] == "FORECAST" and row["forecast_run_id"] == run.id
+    assert row["supplier_id"] == catalog["supplier"].id
+
+    # The whole horizon is in the past: the run is stale, so recent sales are used instead.
+    async with get_sessionmaker()() as s:
+        await s.execute(text("UPDATE forecast_points SET forecast_date = forecast_date - 60"))
+        await s.commit()
+    row = await _analysis_row(catalog)
+    assert row["demand_source"] == "HISTORICAL_AVERAGE" and row["forecast_run_id"] is None
+    assert row["avg_daily_demand"] > 0
+
+    # An inactive preferred supplier is not pre-selected (a PO to it would be refused).
+    async with get_sessionmaker()() as s:
+        sup = await s.get(Supplier, catalog["supplier"].id)
+        sup.status, sup.lead_time_days = EntityStatus.INACTIVE, 30
+        await s.commit()
+    row = await _analysis_row(catalog)
+    assert row["supplier_id"] is None and row["supplier_name"] is None
+    assert row["lead_time_days"] == 5  # product lead time, not the inactive supplier's 30
+
+
+async def test_failed_import_still_invalidates_committed_batches(catalog: dict, tmp_path: Path) -> None:
+    from app.cache.redis_cache import get_redis
+
+    lines = ["sku,warehouse_code,sold_at,quantity,order_reference"]
+    # Large enough that the bad bytes lie beyond the text decoder's read-ahead of the first batches.
+    lines += [f"SKU-1,WH-A,2024-03-0{1 + i % 9},1,PART-{i}" for i in range(5000)]
+    p = tmp_path / "partial.csv"
+    p.write_bytes(("\n".join(lines) + "\n").encode() + b"SKU-1,WH-A,2024-03-01,1,\xff\xfe\n")
+    before = int(await get_redis().get("cache:ver:sales") or 0)
+    with pytest.raises(CsvFormatError):
+        await do_import(p)
+    async with get_sessionmaker()() as s:
+        committed = await s.scalar(select(func.count()).select_from(Sale))
+    assert committed and committed % 1000 == 0  # whole batches were committed before the failure
+    assert int(await get_redis().get("cache:ver:sales") or 0) > before  # so readers must not see stale data

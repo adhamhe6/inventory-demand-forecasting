@@ -38,7 +38,8 @@ test('restocking recommendation becomes a purchase order', async ({ page, reques
   const api = await apiAs(request)
   const recs = await api.get('/restocking?page_size=200')
   const rec = recs.items.find((r: { supplier_id: number | null; demand_source: string }) => r.supplier_id && r.demand_source === 'FORECAST')
-  test.skip(!rec, 'no recommendation available in this dataset')
+  // The demo seed is deterministic and always yields one; never skip silently (a skip reports green).
+  expect(rec, 'seed must yield a supplier-backed, forecast-based recommendation').toBeTruthy()
 
   await login(page)
   await page.goto(`/restocking?search=${rec.sku}`)

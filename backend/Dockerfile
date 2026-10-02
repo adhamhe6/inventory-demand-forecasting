@@ -12,11 +12,14 @@ RUN --mount=type=secret,id=ca_bundle,required=false \
 
 # ---- runtime stage ----------------------------------------------------------
 FROM python:3.11-slim AS runtime
+# FORWARDED_ALLOW_IPS: X-Forwarded-For is honoured only from private networks (the nginx container),
+# so a client reaching the API directly cannot spoof its IP for the per-IP login rate limit.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
-    IMPORT_DIR=/data/imports
+    IMPORT_DIR=/data/imports \
+    FORWARDED_ALLOW_IPS=127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 WORKDIR /app
 COPY --from=builder /wheels /wheels
 RUN pip install --no-index --find-links=/wheels /wheels/* && rm -rf /wheels \
@@ -29,4 +32,4 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).status == 200 else 1)"
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers"]

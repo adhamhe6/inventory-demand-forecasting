@@ -146,7 +146,7 @@ async def item_forecast(
 
     data = await cache.get_or_set(
         "forecasts:item",
-        [CacheDomain.FORECASTS, CacheDomain.SALES],
+        [CacheDomain.FORECASTS, CacheDomain.SALES, CacheDomain.CATALOG],  # CATALOG: embeds product name
         compute,
         params={"p": product_id, "w": warehouse_id, "h": history_days},
         serialize=lambda v: ForecastWithHistory.model_validate(v).model_dump(mode="json"),

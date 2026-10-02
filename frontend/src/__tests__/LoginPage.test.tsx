@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -43,7 +43,10 @@ describe('LoginPage', () => {
     apiMock.get.mockResolvedValue(meta(false))
     renderLogin()
     await screen.findByRole('button', { name: 'Sign in' })
-    await new Promise((r) => setTimeout(r, 0))
+    // Wait until /meta has actually resolved, so the assertion can't pass before the data arrives.
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith('/meta'))
+    await waitFor(() => expect(apiMock.get.mock.results[0]?.type).toBe('return'))
+    await Promise.resolve(apiMock.get.mock.results[0]?.value)
     expect(screen.queryByText(/Demo accounts/)).not.toBeInTheDocument()
   })
 

@@ -23,8 +23,9 @@ rejected because the planner either already had a better access path or the tabl
 All relationships are declared `lazy="raise"`, so a lazy load in request code raises instead
 of silently issuing queries. Collections are loaded with explicit joins / `selectinload`.
 `tests/e2e/test_query_counts.py` counts SQL statements per request with 3 rows vs 33 rows for
-products, purchase orders, inventory, forecasts, restocking and shortages and asserts the
-counts are identical (and ≤ 10).
+products, purchase orders, inventory, forecasts, restocking and shortages (each fixture row has a
+product, PO, inventory item and forecast run, and the test asserts every endpoint really returns
+the 33 rows) and asserts the counts are identical (and ≤ 10).
 
 ## Caching
 

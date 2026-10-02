@@ -62,3 +62,40 @@ async def test_run_job_keeps_a_heartbeat_while_running_and_clears_it(db: None, m
     await run_job({"redis": redis, "sessionmaker": None, "cache": None}, "hb-job")
     assert seen == [1, 1]
     assert await redis.exists(heartbeat_key("hb-job")) == 0
+
+
+async def test_reaper_fails_queued_jobs_the_queue_lost(db: None) -> None:
+    long_ago = datetime.now(UTC) - timedelta(minutes=30)
+    async with get_sessionmaker()() as s:
+        for job_id, created in (("lost", long_ago), ("waiting", long_ago), ("new", datetime.now(UTC))):
+            s.add(
+                Job(
+                    id=job_id,
+                    type=JobType.FORECAST_ALL,
+                    status=JobStatus.QUEUED,
+                    params={},
+                    dedupe_key=f"k:{job_id}",
+                    created_at=created,
+                )
+            )
+        await s.commit()
+    redis = get_redis()
+    await redis.set("arq:job:waiting", b"payload", ex=60)  # still in ARQ's queue: leave it alone
+    await reap_stale_jobs({"sessionmaker": get_sessionmaker(), "redis": redis})
+    async with get_sessionmaker()() as s:
+        statuses = {j: (await s.get(Job, j)).status for j in ("lost", "waiting", "new")}
+    assert statuses == {"lost": JobStatus.FAILED, "waiting": JobStatus.QUEUED, "new": JobStatus.QUEUED}
+
+
+async def test_nightly_forecast_marks_the_job_failed_when_enqueue_fails(db: None) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from sqlalchemy import select
+
+    class DeadQueue:
+        async def enqueue_job(self, *args, **kwargs):
+            raise RedisConnectionError("down")
+
+    await worker.nightly_forecast({"sessionmaker": get_sessionmaker(), "redis": DeadQueue()})
+    async with get_sessionmaker()() as s:
+        jobs = (await s.scalars(select(Job).where(Job.dedupe_key == "forecast_all:all"))).all()
+    assert [j.status for j in jobs] == [JobStatus.FAILED]  # not a QUEUED row blocking the dedupe key

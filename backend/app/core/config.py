@@ -9,6 +9,8 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _INSECURE_SECRETS = {"", "change-me", "changeme", "secret", "dev-insecure-secret-key-change-me-in-production"}
+# Published defaults (code / .env.example / demo seed): fine for local use, never for production.
+_PUBLISHED_PASSWORDS = {"ChangeMe123!", "DemoPass123!"}
 
 
 class Settings(BaseSettings):
@@ -66,20 +68,20 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _production_safety(self) -> Settings:
         if self.environment == "production":
-            if (
-                self.secret_key.get_secret_value() in _INSECURE_SECRETS
-                or len(self.secret_key.get_secret_value()) < 32
-            ):
+            key = self.secret_key.get_secret_value()
+            # "change-me…" catches the .env.example placeholder, which is long enough to pass the length check.
+            if key in _INSECURE_SECRETS or key.lower().startswith("change-me") or len(key) < 32:
                 raise ValueError("SECRET_KEY must be set to a random value of >= 32 chars in production")
+            if self.first_admin_password.get_secret_value() in _PUBLISHED_PASSWORDS:
+                raise ValueError("FIRST_ADMIN_PASSWORD must not be a published default in production")
+            if self.seed_demo_data:
+                # The demo seed creates one account per role with a published password.
+                raise ValueError("SEED_DEMO_DATA must be false in production")
             if self.debug:
                 raise ValueError("DEBUG must be false in production")
             if "*" in self.cors_origins:
                 raise ValueError("Wildcard CORS origins are not allowed in production")
         return self
-
-    @property
-    def is_production(self) -> bool:
-        return self.environment == "production"
 
 
 @lru_cache

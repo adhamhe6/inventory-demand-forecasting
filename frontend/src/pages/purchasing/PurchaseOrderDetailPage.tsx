@@ -22,7 +22,7 @@ import { daysPast, isOverdue, PO_RELATED_KEYS, PO_STATUS_LABEL } from './utils'
 
 const FLOW: POStatus[] = ['DRAFT', 'SUBMITTED', 'CONFIRMED', 'PARTIALLY_RECEIVED', 'RECEIVED']
 
-type Transition = 'SUBMITTED' | 'CONFIRMED' | 'CANCELLED'
+type Transition = 'SUBMITTED' | 'CONFIRMED' | 'CANCELLED' | 'RECEIVED'
 const TRANSITION_META: Record<Transition, { label: string; title: string; description: string; confirm: string; destructive?: boolean }> = {
   SUBMITTED: {
     label: 'Submit to supplier',
@@ -35,6 +35,14 @@ const TRANSITION_META: Record<Transition, { label: string; title: string; descri
     title: 'Mark as confirmed by supplier?',
     description: 'Record that the supplier accepted the order. Goods can then be received against it.',
     confirm: 'Mark confirmed',
+  },
+  RECEIVED: {
+    label: 'Close short',
+    title: 'Close this order short?',
+    description:
+      'Use this when the supplier will not deliver the rest. Received goods stay in stock; the outstanding quantity stops counting as inbound and is recorded as a shortfall in supplier fill rate. This cannot be undone.',
+    confirm: 'Close order',
+    destructive: true,
   },
   CANCELLED: {
     label: 'Cancel order',
@@ -227,6 +235,11 @@ export default function PurchaseOrderDetailPage() {
                 <Pencil /> Edit
               </Button>
             </>
+          )}
+          {canManage && po.status === 'PARTIALLY_RECEIVED' && (
+            <Button variant="outline" onClick={() => setTransition('RECEIVED')}>
+              <Ban /> {TRANSITION_META.RECEIVED.label}
+            </Button>
           )}
           {canManage && allowed.includes('CANCELLED') && (
             <Button variant="outline" onClick={() => setTransition('CANCELLED')}>
