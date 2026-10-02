@@ -220,7 +220,7 @@ Per product × warehouse (see `app/services/replenishment.py`):
 - Passwords hashed with **Argon2id**; unknown-user logins still burn a hash (no user-enumeration timing).
 - **JWT** (HS256) with explicit algorithm allow-list (`alg=none`/confusion rejected), `exp/iat/nbf/jti`, and a DB check on every request that the user still exists and is active.
 - **RBAC**: `ADMIN`, `WAREHOUSE_MANAGER`, `INVENTORY_MANAGER`, `PURCHASING_MANAGER`, `ANALYST` mapped to fine-grained permissions (`app/core/security.py`); enforced per endpoint, mirrored in the UI only for UX.
-- **Login rate limiting** in Redis per account *and* per IP (so rotating IPs can't brute-force one account).
+- **Login rate limiting** of *failed* attempts in Redis per account *and* per IP (so rotating IPs can't brute-force one account); shared by `/auth/login` and the Swagger `/auth/token` form.
 - Input validation everywhere (Pydantic + DB constraints); SQL only via SQLAlchemy bound parameters; sort fields via allow-lists; LIKE wildcards escaped.
 - Uploads: extension + binary sniff + size limit + random filenames; CSV exports neutralise formula injection.
 - Config only from env; `ENVIRONMENT=production` refuses to start with a weak/default `SECRET_KEY`, `DEBUG=true`, or wildcard CORS.
@@ -261,7 +261,8 @@ E2E_BASE_URL=http://localhost:8080 npx playwright test
 | Integration | every stock operation, DB constraint enforcement via raw SQL, concurrency (overselling, deadlocks), PO workflow + idempotent and concurrent receiving, cache hit/invalidation, Redis-down behaviour, rate limiter, streaming CSV import (dupes, malformed, binary, 2.5k rows), forecast persistence/pruning |
 | API e2e | the 4 required workflows; auth failures, 7 role/permission denials, validation format, duplicates, invalid references, insufficient stock, invalid transfers/transitions, duplicate receiving, idempotency replay/mismatch, malformed CSV, DB failure → 503, Redis down → still serving, unexpected exceptions → safe 500, cache invalidation, reports |
 | Frontend | form validation, server-error mapping, critical components & flows (Vitest + Testing Library) |
-| Browser | Playwright against the Docker stack: login, PO create → receive → inventory updated, forecast job → chart, recommendation → PO, transfer, permissions |
+| Browser | Playwright against the Docker stack: login/redirects, dashboard KPIs vs API, permissions, PO create → submit → receive → inventory updated, forecast job → worker → chart, recommendation → PO (no duplicate), transfer, reserve/release, insufficient-stock error, and on a phone (Pixel 7) no horizontal overflow on 28 routes + drawer navigation |
+| Live system | `scripts/verify/` — 42 HTTP/Redis/DB checks, SQL ledger invariants, independent re-computation of every replenishment number; see [docs/verification.md](docs/verification.md) |
 
 ---
 
@@ -275,7 +276,7 @@ alembic upgrade head
 SEED_DEMO_DATA=true python -m app.scripts.bootstrap
 uvicorn app.main:app --reload                       # API on :8000
 arq app.workers.worker.WorkerSettings               # worker
-cd ../frontend && npm ci && npm run dev             # UI on :5173 (proxies /api to :8000)
+cd ../frontend && npm ci && npm run dev             # UI on :5173 (proxies /api, /docs, /redoc, /openapi.json to :8000)
 ```
 
 ---
@@ -300,3 +301,5 @@ cd ../frontend && npm ci && npm run dev             # UI on :5173 (proxies /api 
 - Forecasts ignore price, promotions and holidays (exogenous regressors would be the next model in the registry).
 - No multi-currency or multi-tenant support.
 - Access tokens can't be revoked before expiry except by deactivating the user (refresh-token rotation/denylist would address this).
+- On phones, wide tables (stock risks, restocking, reports) scroll horizontally inside their card; secondary columns are hidden below tablet width rather than re-laid out as cards.
+- The login rate limiter fails open when Redis is down (availability over strictness; logged).
