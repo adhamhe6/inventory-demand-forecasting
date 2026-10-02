@@ -479,6 +479,26 @@ class PurchasingService:
         po_dict = await self.get(po_id)
         return po_dict, next(r for r in po_dict["receipts"] if r["id"] == receipt.id), False
 
+    async def open_lines(self) -> list[tuple[int, int, int, date | None, PurchaseOrderStatus]]:
+        """Outstanding quantity per open PO line: (product, warehouse, qty, expected date, status)."""
+        rows = (
+            await self.session.execute(
+                select(
+                    PurchaseOrderLine.product_id,
+                    PurchaseOrder.warehouse_id,
+                    PurchaseOrderLine.quantity_ordered - PurchaseOrderLine.quantity_received,
+                    PurchaseOrder.expected_delivery_date,
+                    PurchaseOrder.status,
+                )
+                .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.purchase_order_id)
+                .where(
+                    PurchaseOrder.status.in_(OPEN_STATUSES),
+                    PurchaseOrderLine.quantity_ordered > PurchaseOrderLine.quantity_received,
+                )
+            )
+        ).all()
+        return [(r[0], r[1], int(r[2]), r[3], r[4]) for r in rows]
+
     async def open_quantities(self) -> dict[tuple[int, int], int]:
         """Outstanding (ordered - received) units per (product, warehouse) on open POs."""
         rows = (

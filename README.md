@@ -187,11 +187,12 @@ Per product × warehouse (see `app/services/replenishment.py`):
 | `D_L` | demand during lead time = sum of the next `L` forecast days (extended with `d` past the horizon) |
 | `SS` | safety stock (warehouse override or product default) |
 | `inbound` | ordered − received on open POs (DRAFT…PARTIALLY_RECEIVED) |
-| `IP` | inventory position = available + inbound |
+| `inbound_L` | submitted/confirmed PO units expected **within the lead time** (drafts haven't been sent; later deliveries can't prevent this shortage) |
+| `IP` | inventory position: `available + inbound` for recommendations, `available + inbound_L` for risk |
 | `ROP` | reorder point = max(static ROP, `D_L + SS`) |
 | `S` | order-up-to level = `ROP + d × R` (R = review period, default 14 days) |
 
-**Risk:** `CRITICAL` if nothing is available or `IP < D_L` (will stock out before any new order can arrive) · `HIGH` if `IP < D_L + SS` (safety stock breached within lead time) · `MEDIUM` if `IP ≤ ROP` · `LOW` if `IP ≤ ROP + d×R` · otherwise `NONE`. Each item carries days of cover, a projected stock-out date and a plain-English reason/action.
+**Risk:** `CRITICAL` if nothing is available or `IP < D_L` (will stock out before any new order can arrive) · `HIGH` if `IP < D_L + SS` (safety stock breached within lead time) · `MEDIUM` if `IP ≤ ROP` · `LOW` if `IP ≤ ROP + d×R` · otherwise `NONE`. **Timing check:** if expected demand until the *next scheduled delivery* exceeds available stock, the item stocks out before that delivery lands, so risk is raised to at least `HIGH` ("expected to run out around Oct 6, before the next delivery on Oct 9") even when the inbound quantity is large. Each item carries days of cover, a projected stock-out date, the next inbound date and a plain-English reason/action.
 
 **Recommendation:** when `IP ≤ ROP`, order `ceil(S − IP)`. Because open POs — **including drafts** — are part of `IP`, an item that was already ordered (or drafted from a previous recommendation) is not recommended again. `POST /restocking/purchase-orders` groups selections into one DRAFT PO per supplier × warehouse, atomically.
 

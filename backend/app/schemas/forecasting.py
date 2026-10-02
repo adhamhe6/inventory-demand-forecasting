@@ -113,7 +113,14 @@ class StockRiskRead(BaseModel):
     warehouse_name: str
     quantity_on_hand: int
     available_quantity: int
-    inbound_quantity: int = Field(description="Open purchase order quantity not yet received")
+    inbound_quantity: int = Field(description="Open purchase order quantity not yet received (incl. drafts)")
+    inbound_within_lead_time: int = Field(
+        description="Submitted/confirmed PO quantity expected within the lead time"
+    )
+    next_inbound_date: date | None = Field(
+        description="Expected date of the next submitted/confirmed delivery"
+    )
+    stockout_before_inbound: bool = Field(description="Stock is expected to run out before the next delivery")
     safety_stock: int
     reorder_point: float = Field(
         description="Dynamic reorder point: max(static ROP, lead-time demand + safety stock)"
@@ -121,7 +128,9 @@ class StockRiskRead(BaseModel):
     lead_time_days: int
     avg_daily_demand: float
     demand_during_lead_time: float
-    projected_stock_at_lead_time: float = Field(description="available + inbound - demand during lead time")
+    projected_stock_at_lead_time: float = Field(
+        description="available + inbound expected within the lead time - demand during lead time"
+    )
     days_of_cover: float | None = Field(description="available / avg daily demand")
     stockout_date: date | None
     demand_source: DemandSource

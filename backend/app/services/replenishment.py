@@ -9,9 +9,12 @@ Definitions (per product × warehouse)
   (extended with ``d`` beyond the forecast horizon).
 * ``SS``  – safety stock (warehouse override, else product default).
 * ``inbound`` – ordered-but-not-received units on open POs (DRAFT…PARTIALLY_RECEIVED).
-  Drafts count, so a recommendation that was already turned into a draft PO is not
+  Drafts count for *recommendations*, so an item already turned into a draft PO is not
   recommended again (no duplicates).
-* ``IP``  – inventory position = available + inbound.
+* ``inbound_L`` – the part of inbound that can actually prevent a shortage: submitted /
+  confirmed POs expected within the lead time (drafts haven't been sent to anyone).
+* ``IP``  – inventory position = available + inbound (recommendations);
+  risk uses available + inbound_L.
 * ``ROP`` – reorder point = max(static product/warehouse ROP, D_L + SS).
 * ``S``   – order-up-to level = ROP + d × R, where R is the review period (cover until the
   next planning cycle).
@@ -23,6 +26,10 @@ Risk levels
 * MEDIUM   – IP ≤ ROP: at/below reorder point – order now.
 * LOW      – IP ≤ ROP + d × R: will reach the reorder point within the next review period.
 * NONE     – otherwise.
+
+Timing check: if expected demand until the *next scheduled delivery* exceeds available stock,
+the item will stock out before that delivery lands, so the risk is raised to at least HIGH
+even when the inbound quantity itself is large.
 
 Recommendation: when IP ≤ ROP, order ``ceil(S − IP)`` units.
 """
@@ -46,6 +53,7 @@ from app.db.models import (
     ForecastRun,
     InventoryItem,
     Product,
+    PurchaseOrderStatus,
     Sale,
     Supplier,
     Warehouse,
@@ -150,7 +158,13 @@ class ReplenishmentService:
                 .where(Product.is_active.is_(True), Warehouse.status == EntityStatus.ACTIVE)
             )
         ).all()
-        inbound = await PurchasingService(self.session, self.cache).open_quantities()
+        open_lines = await PurchasingService(self.session, self.cache).open_lines()
+        inbound: dict[tuple[int, int], int] = defaultdict(int)
+        committed: dict[tuple[int, int], list[tuple[int, date | None]]] = defaultdict(list)
+        for pid, wid, qty, expected, status in open_lines:
+            inbound[(pid, wid)] += qty
+            if status != PurchaseOrderStatus.DRAFT:
+                committed[(pid, wid)].append((qty, expected))
         forecasts = await self._forecast_points(today)
         fallback = await self._historical_rates(today)
 
@@ -171,10 +185,21 @@ class ReplenishmentService:
             available = int(r.available_quantity)
             inb = inbound.get(key, 0)
             ip = available + inb
+            horizon_end = today + timedelta(days=lead)
+            inb_lead = sum(q for q, exp in committed.get(key, []) if exp is None or exp <= horizon_end)
+            # Overdue deliveries haven't arrived: assume "today" at the earliest.
+            arrivals = [max(exp, today) for _, exp in committed.get(key, []) if exp is not None]
+            next_inbound = min(arrivals) if arrivals else None
             rop = max(float(r.static_rop), d_l + ss)
             review_demand = d * self.review_days
             order_up_to = rop + review_demand
-            risk = classify(available, inb, d_l, ss, rop, review_demand, d)
+            risk = classify(available, inb_lead, d_l, ss, rop, review_demand, d)
+            gap = False
+            if d > 0 and next_inbound is not None:
+                demand_until_delivery = lead_time_demand(pts, d, (next_inbound - today).days)
+                gap = available < demand_until_delivery
+                if gap and RISK_ORDER[risk] > RISK_ORDER[RiskLevel.HIGH]:
+                    risk = RiskLevel.HIGH
             qty = recommended_quantity(ip, rop, order_up_to) if (d > 0 or r.static_rop > 0) else 0
             days_cover = round(available / d, 1) if d > 0 else None
             stockout = today + timedelta(days=math.floor(available / d)) if d > 0 else None
@@ -194,6 +219,9 @@ class ReplenishmentService:
                     "quantity_on_hand": int(r.quantity_on_hand),
                     "available_quantity": available,
                     "inbound_quantity": inb,
+                    "inbound_within_lead_time": inb_lead,
+                    "next_inbound_date": next_inbound.isoformat() if next_inbound else None,
+                    "stockout_before_inbound": gap,
                     "inventory_position": ip,
                     "safety_stock": ss,
                     "static_reorder_point": int(r.static_rop),
@@ -202,7 +230,7 @@ class ReplenishmentService:
                     "review_period_days": self.review_days,
                     "avg_daily_demand": round(d, 3),
                     "demand_during_lead_time": round(d_l, 2),
-                    "projected_stock_at_lead_time": round(ip - d_l, 2),
+                    "projected_stock_at_lead_time": round(available + inb_lead - d_l, 2),
                     "days_of_cover": days_cover,
                     "stockout_date": stockout.isoformat() if stockout else None,
                     "order_up_to_level": round(order_up_to, 2),
@@ -258,11 +286,12 @@ class ReplenishmentService:
     @staticmethod
     def _risk_view(a: dict[str, Any]) -> dict[str, Any]:
         risk = RiskLevel(a["risk_level"])
+        position = a["available_quantity"] + a["inbound_within_lead_time"]
         reason, action = {
             RiskLevel.CRITICAL: (
                 "Out of stock"
                 if a["available_quantity"] <= 0
-                else f"Expected lead-time demand ({a['demand_during_lead_time']:.0f}) exceeds stock + inbound ({a['inventory_position']})",
+                else f"Expected lead-time demand ({a['demand_during_lead_time']:.0f}) exceeds stock + inbound ({position})",
                 "Expedite: order immediately or transfer stock from another warehouse",
             ),
             RiskLevel.HIGH: (
@@ -270,12 +299,15 @@ class ReplenishmentService:
                 "Place a replenishment order now",
             ),
             RiskLevel.MEDIUM: (
-                f"Inventory position {a['inventory_position']} is at/below reorder point {a['reorder_point']:.0f}",
+                f"Inventory position {position} is at/below reorder point {a['reorder_point']:.0f}",
                 "Reorder within this review cycle",
             ),
             RiskLevel.LOW: ("Approaching reorder point within the review period", "Monitor; plan next order"),
             RiskLevel.NONE: ("Stock covers expected demand", "No action needed"),
         }[risk]
+        if a["stockout_before_inbound"] and a["available_quantity"] > 0:
+            reason = f"Expected to run out around {a['stockout_date']}, before the next delivery on {a['next_inbound_date']}"
+            action = "Expedite the open purchase order or transfer stock from another warehouse"
         return {**a, "reason": reason, "recommended_action": action}
 
     async def risks(

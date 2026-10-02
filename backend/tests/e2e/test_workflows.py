@@ -241,3 +241,33 @@ async def test_recording_a_sale_issues_stock_atomically(client, auth) -> None:
     r = await client.post(f"{API}/sales", json={**body, "quantity": 3, "order_reference": "SO-2"}, headers=h)
     assert r.status_code == 422 and r.json()["error"]["code"] == "INSUFFICIENT_STOCK"
     assert ok(await client.get(f"{API}/sales", headers=h))["total"] == 1
+
+
+async def test_open_po_arriving_after_stockout_is_still_a_risk(client, auth) -> None:
+    """A big inbound PO doesn't hide a stock-out that happens before it is delivered."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.security import Role
+
+    h = auth(Role.ADMIN)
+    m = await setup_master_data(client, h)
+    pid, wid = m["product"]["id"], m["wa"]["id"]
+    ok(await client.post(f"{API}/inventory/receive", json={"product_id": pid, "warehouse_id": wid, "quantity": 30}, headers=h))
+    today = datetime.now(UTC).date()
+    for i in range(1, 61):  # 10 units/day
+        ok(await client.post(f"{API}/sales", json={"product_id": pid, "warehouse_id": wid, "quantity": 10,
+                                                    "order_reference": f"H{i}", "issue_stock": False,
+                                                    "sold_at": f"{today - timedelta(days=i)}T12:00:00Z"}, headers=h), 201)
+    # Large PO, confirmed, but only due in 6 days; 30 units last ~3 days.
+    po = ok(await client.post(f"{API}/purchase-orders", json={
+        "supplier_id": m["supplier"]["id"], "warehouse_id": wid, "expected_delivery_date": str(today + timedelta(days=6)),
+        "lines": [{"product_id": pid, "quantity_ordered": 1000}]}, headers=h), 201)
+    for s in ("SUBMITTED", "CONFIRMED"):
+        ok(await client.post(f"{API}/purchase-orders/{po['id']}/status", json={"status": s}, headers=h))
+    risk = next(r for r in ok(await client.get(f"{API}/shortages", params={"min_risk": "NONE"}, headers=h))
+                if r["product_id"] == pid and r["warehouse_id"] == wid)
+    assert risk["stockout_before_inbound"] is True
+    assert risk["risk_level"] in {"HIGH", "CRITICAL"}
+    assert "before the next delivery" in risk["reason"]
+    # ...but no duplicate reorder is recommended: the inbound covers future demand.
+    assert not [r for r in ok(await client.get(f"{API}/restocking", headers=h)) if r["product_id"] == pid]
