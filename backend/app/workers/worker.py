@@ -9,6 +9,8 @@ so the worker's event loop keeps heart-beating.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -16,6 +18,7 @@ from typing import Any
 
 from arq import cron
 from arq.connections import RedisSettings
+from redis.exceptions import RedisError
 from sqlalchemy import select, update
 
 from app.cache.redis_cache import close_redis, get_cache
@@ -39,15 +42,24 @@ async def startup(ctx: dict[str, Any]) -> None:
 
 
 ORPHAN_GRACE_SECONDS = 60
+# A running job refreshes its heartbeat every HEARTBEAT_INTERVAL; it is considered dead once the
+# key has expired. ARQ's own ``arq:in-progress`` marker is *not* a liveness signal: it is set
+# with the job timeout (1 h) as TTL, so it outlives a crashed worker by up to an hour.
+HEARTBEAT_INTERVAL_SECONDS = 10
+HEARTBEAT_TTL_SECONDS = 45
+
+
+def heartbeat_key(job_id: str) -> str:
+    return f"job:heartbeat:{job_id}"
 
 
 async def reap_stale_jobs(ctx: dict[str, Any]) -> None:
     """Fail RUNNING jobs whose worker is gone, so the UI never shows a job stuck forever.
 
-    A job is orphaned when ARQ no longer holds its in-progress marker
-    (``arq:in-progress:<job id>``, kept alive by the executing worker) or when it has exceeded
-    the job timeout. Checking the marker rather than "all RUNNING jobs" keeps this safe with
-    several worker replicas.
+    A job is orphaned when its heartbeat key has expired (the executing worker refreshes it
+    every few seconds) or when it has exceeded the job timeout. Checking a per-job heartbeat
+    rather than "all RUNNING jobs" keeps this safe with several worker replicas. If Redis is
+    unreachable nothing is reaped: absence of evidence is not evidence of a dead worker.
     """
     now = datetime.now(UTC)
     async with ctx["sessionmaker"]() as session:
@@ -62,7 +74,11 @@ async def reap_stale_jobs(ctx: dict[str, Any]) -> None:
         orphaned = []
         for job_id, started_at in running:
             timed_out = started_at < now - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60)
-            alive = await ctx["redis"].exists(f"arq:in-progress:{job_id}")
+            try:
+                alive = await ctx["redis"].exists(heartbeat_key(job_id))
+            except RedisError:
+                logger.warning("reaper skipped: redis unavailable")
+                return
             if timed_out or not alive:
                 orphaned.append(job_id)
         if orphaned:
@@ -86,7 +102,29 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 async def run_job(ctx: dict[str, Any], job_id: str) -> None:
-    await execute_job(job_id, ctx["sessionmaker"], ctx["cache"])
+    redis = ctx["redis"]
+    key = heartbeat_key(job_id)
+
+    async def touch() -> None:
+        with contextlib.suppress(RedisError):
+            await redis.set(key, b"1", ex=HEARTBEAT_TTL_SECONDS)
+
+    async def beat() -> None:
+        while True:
+            await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+            await touch()
+
+    await touch()  # alive before the job is marked RUNNING
+
+    heartbeat = asyncio.create_task(beat())
+    try:
+        await execute_job(job_id, ctx["sessionmaker"], ctx["cache"])
+    finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
+        with contextlib.suppress(RedisError):
+            await redis.delete(key)
 
 
 async def nightly_forecast(ctx: dict[str, Any]) -> None:
