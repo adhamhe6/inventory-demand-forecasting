@@ -22,12 +22,12 @@ production accepting published defaults (placeholder `SECRET_KEY`, default admin
 
 ## CI from a clean clone
 
-Fresh `git clone` of the branch, new virtualenv / `npm ci`, every step of `.github/workflows/ci.yml`:
+Fresh `git clone` of the branch (re-run on the final-review commit), new virtualenv / `npm ci`, every step of `.github/workflows/ci.yml`:
 
 | Job | Result |
 |---|---|
-| backend | ruff ✓ · ruff format ✓ · mypy ✓ (62 files) · `alembic upgrade head && alembic check` → no drift · pytest **134 passed**, 84 % coverage |
-| frontend | `npm ci` (0 vulnerabilities) · oxlint ✓ · vitest **68 passed** · `npm run build` ✓ |
+| backend | ruff ✓ · ruff format ✓ · mypy ✓ (62 files) · `alembic upgrade head && alembic check` → no drift · pytest **143 passed**, 86 % coverage |
+| frontend | `npm ci` (0 vulnerabilities) · oxlint ✓ · vitest **70 passed** · `npm run build` ✓ |
 | docker-e2e | images built `--no-cache` from the clone · `compose up --wait` (seed + 65 forecasts ≈ 32 s) · smoke test through nginx ✓ · Playwright **11 passed** |
 
 ## Live system checks (`scripts/verify/live_checks.py`, 43/43)
