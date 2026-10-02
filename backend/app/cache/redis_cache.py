@@ -168,6 +168,23 @@ class RateLimiter:
             return False, max(int(ttl), 1)
         return True, 0
 
+    async def retry_after(self, bucket: str, limit: int) -> int:
+        """Seconds until ``bucket`` accepts requests again (0 if not blocked). Read-only."""
+        if self._redis is None:
+            return 0
+        key = f"ratelimit:{bucket}"
+        try:
+            pipe = self._redis.pipeline(transaction=False)
+            pipe.get(key)
+            pipe.ttl(key)
+            count, ttl = await pipe.execute()
+        except RedisError as exc:
+            logger.warning("rate limiter unavailable; allowing request", extra={"error": str(exc)})
+            return 0
+        if count is not None and int(count) >= limit:
+            return max(int(ttl), 1)
+        return 0
+
     async def reset(self, bucket: str) -> None:
         if self._redis is None:
             return

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.api.dependencies import CurrentUser, PageDep, SessionDep, require
 from app.cache.redis_cache import RateLimiter, get_redis
 from app.core.config import get_settings
-from app.core.errors import RateLimitedError
+from app.core.errors import AuthenticationError, RateLimitedError
 from app.core.security import ROLE_PERMISSIONS, Permission, Role, create_access_token
 from app.db.models import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserCreate, UserRead, UserUpdate
@@ -34,28 +34,32 @@ def _client_ip(request: Request) -> str:
 async def login(body: LoginRequest, request: Request, session: SessionDep) -> TokenResponse:
     """Exchange email + password for a bearer token.
 
-    Failed attempts are rate limited (Redis fixed window) in two independent buckets:
-    per account – so rotating source IPs cannot brute-force one user – and per client IP
-    (3× the account limit) – so one client cannot spray many accounts. A successful login
-    clears the account bucket.
+    *Failed* attempts are rate limited (Redis fixed window) in two independent buckets: per
+    account – so rotating source IPs cannot brute-force one user – and per client IP (3× the
+    account limit) – so one client cannot spray many accounts. Successful logins are never
+    counted, so many legitimate users behind one NAT are unaffected.
     """
     settings = get_settings()
     limiter = RateLimiter(get_redis())
     window = settings.login_rate_limit_window_seconds
-    account_bucket = f"login:acct:{body.email.lower()}"
-    ip_bucket = f"login:ip:{_client_ip(request)}"
-    for bucket, limit in (
-        (account_bucket, settings.login_rate_limit_attempts),
-        (ip_bucket, settings.login_rate_limit_attempts * 3),
-    ):
-        allowed, retry_after = await limiter.hit(bucket, limit, window)
-        if not allowed:
+    buckets = (
+        (f"login:acct:{body.email.lower()}", settings.login_rate_limit_attempts),
+        (f"login:ip:{_client_ip(request)}", settings.login_rate_limit_attempts * 3),
+    )
+    for bucket, limit in buckets:
+        retry_after = await limiter.retry_after(bucket, limit)
+        if retry_after:
             raise RateLimitedError(
-                "Too many login attempts. Please try again later.",
+                "Too many failed login attempts. Please try again later.",
                 details={"retry_after_seconds": retry_after},
             )
-    user = await UserService(session).authenticate(body.email, body.password)
-    await limiter.reset(account_bucket)
+    try:
+        user = await UserService(session).authenticate(body.email, body.password)
+    except AuthenticationError:
+        for bucket, limit in buckets:
+            await limiter.hit(bucket, limit, window)
+        raise
+    await limiter.reset(buckets[0][0])
     token, expires_in = create_access_token(user.id, user.role.value)
     return TokenResponse(access_token=token, expires_in=expires_in, user=UserRead.model_validate(user))
 

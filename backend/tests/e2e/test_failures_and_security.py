@@ -406,3 +406,15 @@ async def test_unexpected_errors_are_safe(client, auth, monkeypatch) -> None:
         r = await c.get(f"{API}/suppliers", headers=auth())
     body = err(r, 500, "INTERNAL_ERROR")
     assert "secret" not in r.text and body["request_id"]
+
+
+async def test_successful_logins_do_not_consume_the_rate_limit(client, users, monkeypatch) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "login_rate_limit_attempts", 2)
+    for _ in range(10):  # many users behind one NAT / repeated sign-ins
+        ok(
+            await client.post(
+                f"{API}/auth/login", json={"email": "admin@test.example", "password": "Password123!"}
+            )
+        )
