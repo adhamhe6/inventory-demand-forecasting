@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Download, FileSpreadsheet, Upload, XCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useAllProducts, useAllWarehouses, useJob } from '@/api/queries'
+import { useAllProducts, useAllWarehouses, useJob, useMeta } from '@/api/queries'
 import { InlineError } from '@/components/common/States'
 import { JobStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,8 @@ import type { ImportResult, Job } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 
 const SALES_CSV_COLUMNS = ['sku', 'warehouse_code', 'sold_at', 'quantity', 'order_reference', 'unit_price']
-const MAX_MB = 50
+/** Used until GET /meta answers; the server enforces its own limit (413 FILE_TOO_LARGE) either way. */
+const FALLBACK_MAX_MB = 50
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -25,6 +26,8 @@ export function ImportSalesDialog({ open, onOpenChange }: { open: boolean; onOpe
   const qc = useQueryClient()
   const products = useAllProducts()
   const warehouses = useAllWarehouses()
+  const meta = useMeta()
+  const maxMb = meta.data?.max_import_file_mb ?? FALLBACK_MAX_MB
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -70,9 +73,9 @@ export function ImportSalesDialog({ open, onOpenChange }: { open: boolean; onOpe
       setFile(null)
       return setFileError('This file is empty')
     }
-    if (f.size > MAX_MB * 1024 * 1024) {
+    if (f.size > maxMb * 1024 * 1024) {
       setFile(null)
-      return setFileError(`Files can be at most ${MAX_MB} MB`)
+      return setFileError(`Files can be at most ${maxMb} MB`)
     }
     setFile(f)
   }
@@ -143,7 +146,7 @@ export function ImportSalesDialog({ open, onOpenChange }: { open: boolean; onOpe
                 </span>
               ) : (
                 <span className="text-sm">
-                  <span className="font-medium text-primary">Choose a CSV file</span> <span className="text-muted-foreground">or drag it here (max {MAX_MB} MB)</span>
+                  <span className="font-medium text-primary">Choose a CSV file</span> <span className="text-muted-foreground">or drag it here (max {maxMb} MB)</span>
                 </span>
               )}
               <input

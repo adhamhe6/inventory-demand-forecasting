@@ -20,6 +20,7 @@ import type { RiskLevel, StockRisk, StockRiskPage } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 import { ExportCsvButton, InfoCallout } from './purchasing/shared'
 import { DEMAND_SOURCE_LABEL, effectiveInbound } from './risk/riskUtils'
+import { LookupError, LookupFailedOption } from './shared/LookupError'
 
 const DEFAULTS = { min_risk: 'LOW', level: '', warehouse_id: '', category: '', search: '', sort: 'risk', page: 1, page_size: 25 }
 const LEVELS: RiskLevel[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
@@ -200,6 +201,7 @@ export default function StockRisksPage() {
             </NativeSelect>
             <NativeSelect aria-label="Warehouse" className="lg:w-40" value={f.warehouse_id} onChange={(e) => setF({ warehouse_id: e.target.value })}>
               <option value="">All warehouses</option>
+              <LookupFailedOption query={warehouses} />
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.code}
@@ -208,6 +210,7 @@ export default function StockRisksPage() {
             </NativeSelect>
             <NativeSelect aria-label="Category" className="lg:w-48" value={f.category} onChange={(e) => setF({ category: e.target.value })}>
               <option value="">All categories</option>
+              <LookupFailedOption query={categories} />
               {categories.data?.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -215,6 +218,7 @@ export default function StockRisksPage() {
               ))}
             </NativeSelect>
           </div>
+          <LookupError lookups={{ warehouses, categories }} />
           {filtersActive && (
             <Button variant="ghost" size="sm" className="self-start lg:ml-auto lg:self-auto" onClick={clear}>
               <SlidersHorizontal /> Clear filters

@@ -38,7 +38,7 @@ const schema = z.object({
 })
 type Values = z.infer<typeof schema>
 const FIELDS = ['name', 'contact_name', 'email', 'phone', 'address', 'payment_terms', 'lead_time_days', 'status'] as const
-const EMPTY: Values = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: 'Net 30', lead_time_days: '7', status: 'ACTIVE' }
+const EMPTY: Values = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: '', lead_time_days: '7', status: 'ACTIVE' }
 
 const toValues = (s: Supplier): Values => ({
   name: s.name,
@@ -136,8 +136,8 @@ export function SupplierFormDialog({ open, onOpenChange, supplier, onSaved }: Pr
             <Field id="s-phone" label="Phone" error={errors.phone?.message}>
               <Input id="s-phone" type="tel" placeholder="+1 312 555 0101" aria-invalid={!!errors.phone} {...register('phone')} />
             </Field>
-            <Field id="s-terms" label="Payment terms" error={errors.payment_terms?.message} hint="e.g. Net 30, Prepaid">
-              <Input id="s-terms" aria-invalid={!!errors.payment_terms} {...register('payment_terms')} />
+            <Field id="s-terms" label="Payment terms" error={errors.payment_terms?.message} hint="Optional. Agreed terms such as Net 30 or Prepaid.">
+              <Input id="s-terms" placeholder="e.g. Net 30" aria-invalid={!!errors.payment_terms} {...register('payment_terms')} />
             </Field>
             <Field id="s-address" label="Address" error={errors.address?.message} className="sm:col-span-2">
               <Textarea id="s-address" rows={2} aria-invalid={!!errors.address} {...register('address')} />

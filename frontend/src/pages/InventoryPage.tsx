@@ -20,6 +20,7 @@ import { useAuth } from '@/lib/auth'
 import { useUrlState } from '@/lib/hooks'
 import type { InventoryItem } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
+import { LookupError, LookupFailedOption } from './shared/LookupError'
 
 const DEFAULTS = { page: 1, page_size: 25, search: '', warehouse_id: '', status: '', category: '', sort: 'status' }
 
@@ -184,6 +185,7 @@ export default function InventoryPage() {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex">
             <NativeSelect aria-label="Warehouse" className="lg:w-44" value={f.warehouse_id} onChange={(e) => setF({ warehouse_id: e.target.value })}>
               <option value="">All warehouses</option>
+              <LookupFailedOption query={warehouses} />
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.code}
@@ -199,6 +201,7 @@ export default function InventoryPage() {
             </NativeSelect>
             <NativeSelect aria-label="Category" className="lg:w-48" value={f.category} onChange={(e) => setF({ category: e.target.value })}>
               <option value="">All categories</option>
+              <LookupFailedOption query={categories} />
               {categories.data?.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -206,6 +209,7 @@ export default function InventoryPage() {
               ))}
             </NativeSelect>
           </div>
+          <LookupError lookups={{ warehouses, categories }} />
           {filtersActive && (
             <Button variant="ghost" size="sm" className="lg:ml-auto" onClick={() => setF({ search: '', warehouse_id: '', status: '', category: '' })}>
               <SlidersHorizontal /> Clear filters

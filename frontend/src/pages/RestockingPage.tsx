@@ -24,6 +24,7 @@ import { cn, fmt } from '@/lib/utils'
 import { Checkbox, ExportCsvButton, InfoCallout } from './purchasing/shared'
 import { DEMAND_SOURCE_LABEL } from './risk/riskUtils'
 import { buildRestockPlan, qtyError } from './risk/restockUtils'
+import { LookupError, LookupFailedOption } from './shared/LookupError'
 
 const DEFAULTS = { warehouse_id: '', supplier_id: '', search: '', sort: 'risk', page: 1, page_size: 50 }
 
@@ -121,6 +122,7 @@ export default function RestockingPage() {
       onChange={(e) => setSupplierFor((prev) => ({ ...prev, [r.inventory_item_id]: Number(e.target.value) }))}
     >
       <option value="">Choose supplier…</option>
+      <LookupFailedOption query={suppliers} label="Couldn’t load suppliers — retry above" />
       {activeSuppliers.map((s) => (
         <option key={s.id} value={s.id}>
           {s.name}
@@ -392,6 +394,7 @@ export default function RestockingPage() {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
             <NativeSelect aria-label="Warehouse" className="lg:w-40" value={f.warehouse_id} onChange={(e) => setF({ warehouse_id: e.target.value })}>
               <option value="">All warehouses</option>
+              <LookupFailedOption query={warehouses} />
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.code}
@@ -400,6 +403,7 @@ export default function RestockingPage() {
             </NativeSelect>
             <NativeSelect aria-label="Supplier" className="lg:w-52" value={f.supplier_id} onChange={(e) => setF({ supplier_id: e.target.value })}>
               <option value="">All suppliers</option>
+              <LookupFailedOption query={suppliers} />
               {suppliers.data?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -407,6 +411,7 @@ export default function RestockingPage() {
               ))}
             </NativeSelect>
           </div>
+          <LookupError lookups={{ warehouses, suppliers }} />
           {filtersActive && (
             <Button variant="ghost" size="sm" className="self-start lg:ml-auto lg:self-auto" onClick={clear}>
               <SlidersHorizontal /> Clear filters

@@ -1,27 +1,38 @@
 import { BookOpen, Cpu, Database, ExternalLink, Layers, LineChart, Server } from 'lucide-react'
+import { useMeta } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { API_BASE } from '@/lib/api'
+import { toLevelPct } from '../forecasting/lib'
 
-const STACK = [
-  { icon: Layers, title: 'Web app', body: 'React 19, TypeScript, Vite, Tailwind CSS, Radix UI, TanStack Query, Recharts.' },
-  { icon: Server, title: 'API', body: 'FastAPI (Python) with async SQLAlchemy, JWT auth, role-based permissions and CSV exports.' },
-  { icon: Database, title: 'Data', body: 'PostgreSQL for the stock ledger, catalog and forecasts; Redis for caching and the job queue.' },
-  { icon: Cpu, title: 'Background worker', body: 'Runs forecasts and sales imports off the request path, with progress tracking and de-duplication.' },
-  {
-    icon: LineChart,
-    title: 'Forecasting',
-    body: 'Moving average, weekly seasonal naive, Holt-Winters and Croston (SBA), auto-selected per item by rolling-origin backtests, with 80% prediction intervals.',
-  },
-]
+function stack(intervalPct: number | null) {
+  return [
+    { icon: Layers, title: 'Web app', body: 'React and TypeScript, built with Vite; Tailwind CSS, Radix UI primitives, TanStack Query and Recharts.' },
+    { icon: Server, title: 'API', body: 'FastAPI (Python) with async SQLAlchemy, JWT auth, role-based permissions and CSV exports.' },
+    { icon: Database, title: 'Data', body: 'PostgreSQL for the stock ledger, catalog and forecasts; Redis for caching and the job queue.' },
+    { icon: Cpu, title: 'Background worker', body: 'Runs forecasts and sales imports off the request path, with progress tracking and de-duplication.' },
+    {
+      icon: LineChart,
+      title: 'Forecasting',
+      body: `Moving average, weekly seasonal naive, Holt-Winters and Croston (SBA), auto-selected per item by rolling-origin backtests, with ${intervalPct == null ? '' : `${intervalPct}% `}prediction intervals.`,
+    },
+  ]
+}
 
 export function AboutTab() {
+  const meta = useMeta()
+  const version = meta.data?.version
+  const STACK = stack(toLevelPct(meta.data?.forecast_interval_level))
   return (
     <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-3">
       <Card className="xl:col-span-2">
         <CardHeader>
           <CardTitle>StockSense</CardTitle>
-          <CardDescription>Inventory management and demand forecasting · version 1.0</CardDescription>
+          <CardDescription>
+            Inventory management and demand forecasting
+            {version ? ` · version ${version}` : meta.isLoading ? ' · loading version…' : ''}
+            {meta.data?.environment && meta.data.environment !== 'production' ? ` · ${meta.data.environment}` : ''}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <ul className="grid gap-4 sm:grid-cols-2">

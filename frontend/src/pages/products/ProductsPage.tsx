@@ -18,6 +18,7 @@ import { cn, fmt } from '@/lib/utils'
 import { marginOf } from './formUtils'
 import { ProductFormDialog } from './ProductFormDialog'
 import { useProductLifecycle } from './useProductLifecycle'
+import { LookupError, LookupFailedOption } from '../shared/LookupError'
 
 const DEFAULTS = { page: 1, page_size: 25, search: '', category: '', supplier_id: '', is_active: '', sort: 'sku' }
 
@@ -184,6 +185,7 @@ export default function ProductsPage() {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex">
             <NativeSelect aria-label="Category" className="lg:w-44" value={f.category} onChange={(e) => setF({ category: e.target.value })}>
               <option value="">All categories</option>
+              <LookupFailedOption query={categories} />
               {categories.data?.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -192,6 +194,7 @@ export default function ProductsPage() {
             </NativeSelect>
             <NativeSelect aria-label="Supplier" className="lg:w-52" value={f.supplier_id} onChange={(e) => setF({ supplier_id: e.target.value })}>
               <option value="">All suppliers</option>
+              <LookupFailedOption query={suppliers} />
               {suppliers.data?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -204,6 +207,7 @@ export default function ProductsPage() {
               <option value="false">Inactive</option>
             </NativeSelect>
           </div>
+          <LookupError lookups={{ categories, suppliers }} />
           {filtersActive && (
             <Button variant="ghost" size="sm" className="lg:ml-auto" onClick={() => setF({ search: '', category: '', supplier_id: '', is_active: '' })}>
               <SlidersHorizontal /> Clear filters

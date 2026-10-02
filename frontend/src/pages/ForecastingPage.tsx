@@ -24,6 +24,7 @@ import { ChartLegend, ForecastChart } from './forecasting/ForecastChart'
 import { CandidatesCard, DemandProfileCard, ModelAccuracyCard } from './forecasting/ForecastInsights'
 import { LatestForecastsTable, ModelMixCard, RunAllCard } from './forecasting/LatestForecasts'
 import { FORECAST_DEPENDENT_KEYS, useIntervalPct } from './forecasting/lib'
+import { LookupError, LookupFailedOption } from './shared/LookupError'
 import { HISTORY_WINDOWS, HORIZONS, MODEL_CHOICES, MODEL_META, type ModelChoice, modelLabel } from './forecasting/meta'
 import { isActive, jobDuration, useTrackedJob } from './forecasting/useTrackedJob'
 
@@ -139,6 +140,7 @@ export default function ForecastingPage() {
               onChange={(e) => setS({ product_id: Number(e.target.value) || 0 })}
             >
               <option value="">{products.isLoading ? 'Loading products…' : 'Select a product'}</option>
+              <LookupFailedOption query={products} />
               {products.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.sku} — {p.name}
@@ -149,6 +151,7 @@ export default function ForecastingPage() {
           <Field id="fc-wh" label="Warehouse">
             <NativeSelect id="fc-wh" value={warehouseId || ''} onChange={(e) => setS({ warehouse_id: Number(e.target.value) || 0 })} disabled={!productId}>
               <option value="">Select a warehouse</option>
+              <LookupFailedOption query={warehouses} />
               {stocked.data && stocked.data.length > 0 && (
                 <optgroup label="Stocks this product">
                   {warehouses.data
@@ -205,6 +208,11 @@ export default function ForecastingPage() {
           <span>{MODEL_META[model].description}</span>
           {!canRun && <span className="w-full sm:ml-auto sm:w-auto">Your role can view forecasts but not run them.</span>}
         </p>
+        <LookupError
+          className="mx-4 mb-3"
+          context=""
+          lookups={{ products, warehouses, 'stocking warehouses': stocked, 'the default item': productId === 0 ? top : undefined }}
+        />
       </Card>
 
       {/* ---------------- background job state */}

@@ -5,12 +5,14 @@ import { ChartCard, chartTheme } from '@/components/common/ChartCard'
 import { type Column, DataTable } from '@/components/common/DataTable'
 import { CardsSkeleton, EmptyState, ErrorState, TableSkeleton } from '@/components/common/States'
 import { ActiveBadge, StockStatusBadge } from '@/components/common/StatusBadge'
+import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { NativeSelect } from '@/components/ui/input'
 import { useUrlState } from '@/lib/hooks'
 import type { InventoryItem, WarehouseSummary } from '@/lib/types'
 import { fmt } from '@/lib/utils'
-import { ExportButton, Segmented, SimpleTable, Stat, StatGrid, Toolbar } from './shared'
+import { LookupError, LookupFailedOption } from '../shared/LookupError'
+import { ChartFigure, ExportButton, Segmented, SimpleTable, Stat, StatGrid, Toolbar } from './shared'
 import { hideCls, useReport } from './lib'
 
 interface InventoryValue {
@@ -33,6 +35,19 @@ export function InventoryReport() {
   const v = value.data
   const units = v?.rows.reduce((s, r) => s + r.units, 0) ?? 0
   const margin = v ? v.total_retail_value - v.total_cost_value : 0
+  const groupNoun = f.group_by === 'warehouse' ? 'warehouse' : 'category'
+  const valueLabel = v
+    ? `Bar chart of stock value by ${groupNoun}, cost vs retail: ${v.rows.map((r) => `${r.group} ${fmt.moneyCompact(r.cost_value)} cost, ${fmt.moneyCompact(r.retail_value)} retail`).join('; ')}.`
+    : ''
+  const trendRows = trend.data ?? []
+  // The series is zero-filled, so "empty" means no stock on any day (every() is true for an empty array).
+  const trendEmpty = trend.data != null && trendRows.every((p) => !p.value && !p.units)
+  const trendFirst = trendRows[0]
+  const trendLast = trendRows.at(-1)
+  const trendLabel =
+    trendFirst && trendLast
+      ? `Area chart of stock value at cost over the last ${f.trend_days} days${f.trend_wh ? ' for the selected warehouse' : ''}: ${fmt.money(trendFirst.value)} on ${fmt.date(trendFirst.date)}, ${fmt.money(trendLast.value)} on ${fmt.date(trendLast.date)}.`
+      : 'Stock value over time'
 
   return (
     <>
@@ -78,16 +93,18 @@ export function InventoryReport() {
           {v && v.rows.length === 0 ? (
             <EmptyState title="No stock" description="Receive stock to see inventory value." />
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={v?.rows} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 0 }} barGap={2}>
-                <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" tickFormatter={(x) => fmt.moneyCompact(x)} tick={chartTheme.axis} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="group" tick={chartTheme.axis} tickLine={false} axisLine={false} width={f.group_by === 'category' ? 128 : 80} />
-                <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} formatter={(x, n) => [fmt.money(Number(x)), n === 'cost_value' ? 'Cost value' : 'Retail value']} />
-                <Bar dataKey="cost_value" fill="var(--chart-1)" radius={[0, 4, 4, 0]} maxBarSize={14} animationDuration={500} />
-                <Bar dataKey="retail_value" fill="var(--chart-2)" radius={[0, 4, 4, 0]} maxBarSize={14} animationDuration={500} />
-              </BarChart>
-            </ResponsiveContainer>
+            <ChartFigure label={valueLabel}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={v?.rows} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 0 }} barGap={2}>
+                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(x) => fmt.moneyCompact(x)} tick={chartTheme.axis} tickLine={false} axisLine={false} />
+                  <YAxis type="category" dataKey="group" tick={chartTheme.axis} tickLine={false} axisLine={false} width={f.group_by === 'category' ? 128 : 80} />
+                  <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} formatter={(x, n) => [fmt.money(Number(x)), n === 'cost_value' ? 'Cost value' : 'Retail value']} />
+                  <Bar dataKey="cost_value" fill="var(--chart-1)" radius={[0, 4, 4, 0]} maxBarSize={14} animationDuration={500} />
+                  <Bar dataKey="retail_value" fill="var(--chart-2)" radius={[0, 4, 4, 0]} maxBarSize={14} animationDuration={500} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartFigure>
           )}
         </ChartCard>
         <Card className="xl:col-span-3">
@@ -104,6 +121,16 @@ export function InventoryReport() {
           </CardHeader>
           {!v ? (
             <TableSkeleton rows={4} cols={5} />
+          ) : v.rows.length === 0 ? (
+            <EmptyState
+              title="No stock on hand"
+              description={`There is nothing to break down by ${groupNoun} yet.`}
+              action={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/purchase-orders">Go to purchase orders</Link>
+                </Button>
+              }
+            />
           ) : (
             <SimpleTable
               caption="Inventory value breakdown"
@@ -147,6 +174,7 @@ export function InventoryReport() {
           <div className="flex flex-wrap justify-end gap-2">
             <NativeSelect aria-label="Trend warehouse" className="h-8 w-40" value={f.trend_wh} onChange={(e) => setF({ trend_wh: e.target.value })}>
               <option value="">All warehouses</option>
+              <LookupFailedOption query={warehouses} />
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.code}
@@ -166,28 +194,33 @@ export function InventoryReport() {
       >
         {trend.error ? (
           <ErrorState error={trend.error} onRetry={() => trend.refetch()} />
+        ) : trendEmpty ? (
+          <EmptyState title="No stock history" description={`No stock was held ${f.trend_wh ? 'in this warehouse ' : ''}during the last ${f.trend_days} days.`} />
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={trend.data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="rptValueFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="date" tickFormatter={fmt.shortDate} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={32} />
-              <YAxis tickFormatter={(x) => fmt.moneyCompact(x)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
-              <Tooltip
-                {...chartTheme.tooltip}
-                labelFormatter={(x) => fmt.date(String(x))}
-                formatter={(x, _n, item) => [`${fmt.money(Number(x))} · ${fmt.int((item.payload as { units: number }).units)} units`, 'Stock value']}
-              />
-              <Area type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={2} fill="url(#rptValueFill)" animationDuration={500} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <ChartFigure label={trendLabel}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trend.data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="rptValueFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" tickFormatter={fmt.shortDate} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={32} />
+                <YAxis tickFormatter={(x) => fmt.moneyCompact(x)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
+                <Tooltip
+                  {...chartTheme.tooltip}
+                  labelFormatter={(x) => fmt.date(String(x))}
+                  formatter={(x, _n, item) => [`${fmt.money(Number(x))} · ${fmt.int((item.payload as { units: number }).units)} units`, 'Stock value']}
+                />
+                <Area type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={2} fill="url(#rptValueFill)" animationDuration={500} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartFigure>
         )}
       </ChartCard>
+      <LookupError lookups={{ warehouses }} className="mt-2" />
     </>
   )
 }
@@ -234,12 +267,14 @@ export function LowStockReport() {
       <Toolbar actions={<ExportButton path="/reports/low-stock" query={{ warehouse_id: f.ls_wh, sort: f.ls_sort }} />}>
         <NativeSelect aria-label="Warehouse" className="w-44" value={f.ls_wh} onChange={(e) => setF({ ls_wh: e.target.value, ls_page: 1 })}>
           <option value="">All warehouses</option>
+          <LookupFailedOption query={warehouses} />
           {warehouses.data?.map((w) => (
             <option key={w.id} value={w.id}>
               {w.code}
             </option>
           ))}
         </NativeSelect>
+        <LookupError lookups={{ warehouses }} />
         {q.data && <span className="text-sm text-muted-foreground">{fmt.int(q.data.total)} items at or below reorder point</span>}
       </Toolbar>
       <Card>

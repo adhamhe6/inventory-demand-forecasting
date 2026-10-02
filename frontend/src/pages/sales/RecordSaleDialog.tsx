@@ -16,6 +16,7 @@ import type { InventoryItem, Page, Sale } from '@/lib/types'
 import { fmt } from '@/lib/utils'
 import { Checkbox } from '../purchasing/shared'
 import { applyServerErrors } from '../purchasing/utils'
+import { LookupError, LookupFailedOption } from '../shared/LookupError'
 
 const MONEY = /^\d{1,10}(\.\d{1,2})?$/
 
@@ -133,9 +134,11 @@ export function RecordSaleDialog({ open, onOpenChange }: { open: boolean; onOpen
             <DialogDescription>Log a customer order line. Sales history feeds demand forecasts.</DialogDescription>
           </DialogHeader>
           <InlineError error={generalError} />
+          <LookupError lookups={{ products, warehouses }} context="" />
           <Field id="sale-product" label="Product" error={errors.product_id?.message} required>
             <NativeSelect id="sale-product" aria-invalid={!!errors.product_id} disabled={products.isLoading} {...register('product_id')}>
               <option value="">{products.isLoading ? 'Loading products…' : 'Select a product'}</option>
+              <LookupFailedOption query={products} />
               {products.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.sku} — {p.name}
@@ -147,6 +150,7 @@ export function RecordSaleDialog({ open, onOpenChange }: { open: boolean; onOpen
             <Field id="sale-wh" label="Warehouse" error={errors.warehouse_id?.message} required>
               <NativeSelect id="sale-wh" aria-invalid={!!errors.warehouse_id} {...register('warehouse_id')}>
                 <option value="">Select a warehouse</option>
+                <LookupFailedOption query={warehouses} />
                 {warehouses.data
                   ?.filter((w) => w.status === 'ACTIVE')
                   .map((w) => (
@@ -160,7 +164,15 @@ export function RecordSaleDialog({ open, onOpenChange }: { open: boolean; onOpen
               id="sale-qty"
               label={`Quantity${product ? ` (${product.unit})` : ''}`}
               error={errors.quantity?.message}
-              hint={available != null ? `${fmt.int(available)} available in this warehouse` : stock.isFetching ? 'Checking stock…' : undefined}
+              hint={
+                available != null
+                  ? `${fmt.int(available)} available in this warehouse`
+                  : stock.isFetching
+                    ? 'Checking stock…'
+                    : stock.error
+                      ? 'Couldn’t check stock here — the server still verifies availability when you save.'
+                      : undefined
+              }
               required
             >
               <Input id="sale-qty" type="number" inputMode="numeric" min={1} step={1} aria-invalid={!!errors.quantity} {...register('quantity')} />

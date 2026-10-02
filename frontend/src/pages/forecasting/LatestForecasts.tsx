@@ -23,6 +23,7 @@ import { cn, fmt } from '@/lib/utils'
 import { FORECAST_DEPENDENT_KEYS, useForecastAccuracy } from './lib'
 import { HORIZONS, MODEL_CHOICES, modelLabel, modelShort } from './meta'
 import { isActive, jobDuration, useTrackedJob } from './useTrackedJob'
+import { LookupError, LookupFailedOption } from '../shared/LookupError'
 
 const LIST_DEFAULTS = { page: 1, page_size: 10, search: '', list_wh: '', model_name: '', sort: '-total_predicted' }
 
@@ -103,6 +104,7 @@ export function LatestForecastsTable({
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
           <NativeSelect aria-label="Filter by warehouse" className="lg:w-44" value={f.list_wh} onChange={(e) => setF({ list_wh: e.target.value })}>
             <option value="">All warehouses</option>
+            <LookupFailedOption query={warehouses} />
             {warehouses.data?.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.code}
@@ -118,6 +120,7 @@ export function LatestForecastsTable({
             ))}
           </NativeSelect>
         </div>
+        <LookupError lookups={{ warehouses }} />
         {filtersActive && (
           <Button variant="ghost" size="sm" className="lg:ml-auto" onClick={() => setF({ search: '', list_wh: '', model_name: '' })}>
             <SlidersHorizontal /> Clear filters
@@ -260,6 +263,7 @@ export function RunAllCard() {
             <Field id="runall-wh" label="Scope" className="sm:w-44">
               <NativeSelect id="runall-wh" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} disabled={active}>
                 <option value="">All warehouses</option>
+                <LookupFailedOption query={warehouses} />
                 {warehouses.data
                   ?.filter((w) => w.status === 'ACTIVE')
                   .map((w) => (
@@ -274,6 +278,7 @@ export function RunAllCard() {
             </Button>
           </div>
         )}
+        {canRun && <LookupError lookups={{ warehouses }} context="— you can still re-forecast all warehouses" />}
         {run.error && !confirm && <InlineError error={run.error} />}
         {latest.isLoading && !current ? (
           <Skeleton className="h-16 w-full" />

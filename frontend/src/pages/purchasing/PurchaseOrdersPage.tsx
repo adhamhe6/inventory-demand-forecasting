@@ -21,6 +21,7 @@ import type { POStatus, PurchaseOrderSummary } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 import { DateRangeFilter, ExportCsvButton, MiniProgress } from './shared'
 import { daysPast, isOverdue, OPEN_PO_STATUSES as OPEN, PO_STATUS_LABEL, PO_STATUS_ORDER, type POReport } from './utils'
+import { LookupError, LookupFailedOption } from '../shared/LookupError'
 
 const DEFAULTS = {
   page: 1,
@@ -308,6 +309,7 @@ export default function PurchaseOrdersPage() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
               <NativeSelect aria-label="Supplier" className="lg:w-48" value={f.supplier_id} onChange={(e) => setF({ supplier_id: e.target.value })}>
                 <option value="">All suppliers</option>
+                <LookupFailedOption query={suppliers} />
                 {suppliers.data?.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -316,6 +318,7 @@ export default function PurchaseOrdersPage() {
               </NativeSelect>
               <NativeSelect aria-label="Warehouse" className="lg:w-40" value={f.warehouse_id} onChange={(e) => setF({ warehouse_id: e.target.value })}>
                 <option value="">All warehouses</option>
+                <LookupFailedOption query={warehouses} />
                 {warehouses.data?.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.code}
@@ -324,6 +327,7 @@ export default function PurchaseOrdersPage() {
               </NativeSelect>
             </div>
             <DateRangeFilter from={f.date_from} to={f.date_to} onChange={(p) => setF(p)} labelPrefix="Order date" />
+            <LookupError lookups={{ suppliers, warehouses }} />
             {filtersActive && (
               <Button
                 variant="ghost"

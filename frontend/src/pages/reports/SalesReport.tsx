@@ -8,7 +8,8 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { Input, NativeSelect } from '@/components/ui/input'
 import { useUrlState } from '@/lib/hooks'
 import { daysAgo, fmt, isoDate } from '@/lib/utils'
-import { ExportButton, Segmented, SimpleTable, Stat, StatGrid, Toolbar } from './shared'
+import { LookupError, LookupFailedOption } from '../shared/LookupError'
+import { ChartFigure, ExportButton, Segmented, SimpleTable, Stat, StatGrid, Toolbar } from './shared'
 import { hideCls, useReport } from './lib'
 
 interface SalesSummary {
@@ -39,6 +40,17 @@ export function SalesReport() {
   const query = { date_from: from, date_to: to, granularity: f.granularity, warehouse_id: f.s_wh, category: f.s_cat, top: 10 }
   const q = useReport<SalesSummary>('sales-summary', '/reports/sales-summary', query, !invalid)
   const d = q.data
+  // The backend zero-fills every period, so "no sales" means zero units rather than an empty series.
+  const noSales = !d || d.series.length === 0 || d.totals.units === 0
+  const peak = d?.series.reduce<SalesSummary['series'][number] | null>((best, p) => (!best || p.units > best.units ? p : best), null)
+  const peakRevenue = d?.series.reduce<SalesSummary['series'][number] | null>((best, p) => (!best || p.revenue > best.revenue ? p : best), null)
+  const per = f.granularity === 'day' ? 'day' : f.granularity
+  const unitsLabel = d
+    ? `Bar chart of units sold per ${per}, ${d.series.length} periods: ${fmt.int(d.totals.units)} units in total${peak ? `, peaking at ${fmt.int(peak.units)} in the period starting ${fmt.date(peak.period)}` : ''}.`
+    : ''
+  const revenueLabel = d
+    ? `Bar chart of revenue per ${per}, ${d.series.length} periods: ${fmt.money(d.totals.revenue)} in total${peakRevenue ? `, peaking at ${fmt.money(peakRevenue.revenue)} in the period starting ${fmt.date(peakRevenue.period)}` : ''}.`
+    : ''
   const activeQuick = QUICK.find((n) => to === today && from === daysAgo(n - 1))
 
   const tooltipLabel = (x: unknown) => {
@@ -69,6 +81,7 @@ export function SalesReport() {
         </NativeSelect>
         <NativeSelect aria-label="Warehouse" className="w-40" value={f.s_wh} onChange={(e) => setF({ s_wh: e.target.value })}>
           <option value="">All warehouses</option>
+          <LookupFailedOption query={warehouses} />
           {warehouses.data?.map((w) => (
             <option key={w.id} value={w.id}>
               {w.code}
@@ -77,12 +90,14 @@ export function SalesReport() {
         </NativeSelect>
         <NativeSelect aria-label="Category" className="w-44" value={f.s_cat} onChange={(e) => setF({ s_cat: e.target.value })}>
           <option value="">All categories</option>
+          <LookupFailedOption query={categories} />
           {categories.data?.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
         </NativeSelect>
+        <LookupError lookups={{ warehouses, categories }} />
       </Toolbar>
 
       {invalid ? (
@@ -104,7 +119,7 @@ export function SalesReport() {
             <Stat label="Orders" value={fmt.int(d.totals.orders)} hint={`${fmt.num(d.totals.orders ? d.totals.units / d.totals.orders : 0)} units / order`} />
             <Stat label="Avg order value" value={fmt.money(d.totals.avg_order_value)} />
           </StatGrid>
-          {d.series.length === 0 ? (
+          {noSales ? (
             <Card>
               <EmptyState title="No sales in this period" description="Try a wider date range or clear the warehouse and category filters." />
             </Card>
@@ -112,31 +127,35 @@ export function SalesReport() {
             <>
               <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-2">
                 <ChartCard title="Units sold" description={`Per ${f.granularity}`}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={d.series} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-                      <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="period" tickFormatter={(p) => periodLabel(p, f.granularity)} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={24} />
-                      <YAxis tick={chartTheme.axis} tickLine={false} axisLine={false} width={48} />
-                      <Tooltip
-                        {...chartTheme.tooltip}
-                        cursor={{ fill: 'var(--muted)' }}
-                        labelFormatter={tooltipLabel}
-                        formatter={(x, _n, item) => [`${fmt.int(Number(x))} units · ${fmt.int((item.payload as { orders: number }).orders)} orders`, 'Sold']}
-                      />
-                      <Bar dataKey="units" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={500} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <ChartFigure label={unitsLabel}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={d.series} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                        <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="period" tickFormatter={(p) => periodLabel(p, f.granularity)} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={24} />
+                        <YAxis tick={chartTheme.axis} tickLine={false} axisLine={false} width={48} />
+                        <Tooltip
+                          {...chartTheme.tooltip}
+                          cursor={{ fill: 'var(--muted)' }}
+                          labelFormatter={tooltipLabel}
+                          formatter={(x, _n, item) => [`${fmt.int(Number(x))} units · ${fmt.int((item.payload as { orders: number }).orders)} orders`, 'Sold']}
+                        />
+                        <Bar dataKey="units" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={500} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartFigure>
                 </ChartCard>
                 <ChartCard title="Revenue" description={`Per ${f.granularity}, gross sales value`}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={d.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                      <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="period" tickFormatter={(p) => periodLabel(p, f.granularity)} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={24} />
-                      <YAxis tickFormatter={(x) => fmt.moneyCompact(x)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
-                      <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} labelFormatter={tooltipLabel} formatter={(x) => [fmt.money(Number(x)), 'Revenue']} />
-                      <Bar dataKey="revenue" fill="var(--chart-3)" radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={500} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <ChartFigure label={revenueLabel}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={d.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                        <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="period" tickFormatter={(p) => periodLabel(p, f.granularity)} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={24} />
+                        <YAxis tickFormatter={(x) => fmt.moneyCompact(x)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
+                        <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} labelFormatter={tooltipLabel} formatter={(x) => [fmt.money(Number(x)), 'Revenue']} />
+                        <Bar dataKey="revenue" fill="var(--chart-3)" radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={500} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartFigure>
                 </ChartCard>
               </div>
               <Card className="mt-6">
@@ -148,6 +167,13 @@ export function SalesReport() {
                   caption="Top products by revenue"
                   head={[{ label: '#' }, { label: 'Product' }, { label: 'Category', hideBelow: 'md' }, { label: 'Units', align: 'right', hideBelow: 'sm' }, { label: 'Revenue', align: 'right' }, { label: 'Share', align: 'right', hideBelow: 'lg' }]}
                 >
+                  {d.top_products.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                        No product sales in this period.
+                      </td>
+                    </tr>
+                  )}
                   {d.top_products.map((p, i) => (
                     <tr key={p.product_id}>
                       <td className="w-8 tabular text-muted-foreground">{i + 1}</td>

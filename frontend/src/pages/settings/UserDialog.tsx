@@ -1,11 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { qk } from '@/api/queries'
 import { Field } from '@/components/common/Field'
 import { InlineError } from '@/components/common/States'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input, NativeSelect } from '@/components/ui/input'
@@ -18,7 +19,8 @@ import { type CreateValues, createSchema, type EditValues, editSchema } from './
 /** Map backend errors onto form fields; returns true when something was mapped. */
 function mapServerErrors(e: unknown, setError: (name: never, err: { message: string }) => void): boolean {
   if (!(e instanceof ApiError)) return false
-  if (e.code === 'DUPLICATE' || e.status === 409) {
+  // Only a duplicate-email conflict belongs on the email field; other 409s (e.g. last admin) stay general.
+  if (e.code === 'DUPLICATE') {
     setError('email' as never, { message: 'A user with this email already exists' })
     return true
   }
@@ -93,36 +95,76 @@ export function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpen
   )
 }
 
+type UserPatch = Partial<{ full_name: string; role: User['role']; is_active: boolean; password: string }>
+
+/** Only the fields that actually changed (PATCH semantics). */
+export function userPatch(user: User, v: EditValues): UserPatch {
+  const body: UserPatch = {}
+  if (v.full_name !== user.full_name) body.full_name = v.full_name
+  if (v.role !== user.role) body.role = v.role
+  if (v.is_active !== user.is_active) body.is_active = v.is_active
+  if (v.password) body.password = v.password
+  return body
+}
+
 export function EditUserDialog({ user, isSelf, onOpenChange }: { user: User | null; isSelf: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient()
   const form = useForm<EditValues>({ resolver: zodResolver(editSchema) })
   const { register, handleSubmit, reset, setError, formState } = form
+  // A risky change (deactivation or removing admin rights) waits here for explicit confirmation.
+  const [pending, setPending] = useState<UserPatch | null>(null)
   useEffect(() => {
     if (user) reset({ full_name: user.full_name, role: user.role, is_active: user.is_active, password: '' })
+    setPending(null)
   }, [user, reset])
   const m = useMutation({
-    mutationFn: (v: EditValues) => {
-      const body: Record<string, unknown> = {}
-      if (v.full_name !== user!.full_name) body.full_name = v.full_name
-      if (v.role !== user!.role) body.role = v.role
-      if (v.is_active !== user!.is_active) body.is_active = v.is_active
-      if (v.password) body.password = v.password
-      return api.patch<User>(`/users/${user!.id}`, body)
-    },
+    mutationFn: (body: UserPatch) => api.patch<User>(`/users/${user!.id}`, body),
     onSuccess: (u) => {
       qc.invalidateQueries({ queryKey: qk.users })
       toast.success('User updated', { description: u.full_name })
+      setPending(null)
       onOpenChange(false)
     },
   })
   const errors = formState.errors
   const mapped = m.error instanceof ApiError && Object.keys(m.error.fieldErrors).length > 0
+  const send = (body: UserPatch) =>
+    m.mutate(body, {
+      onError: (e) => {
+        setPending(null)
+        mapServerErrors(e, setError as never)
+      },
+    })
+
+  const submit = (v: EditValues) => {
+    if (!user) return
+    const body = userPatch(user, v)
+    if (Object.keys(body).length === 0) {
+      toast.info('No changes to save')
+      onOpenChange(false)
+      return
+    }
+    const deactivating = body.is_active === false
+    const demotingAdmin = user.role === 'ADMIN' && body.role !== undefined && body.role !== 'ADMIN'
+    if (deactivating || demotingAdmin) setPending(body)
+    else send(body)
+  }
+
+  const deactivating = pending?.is_active === false
+  const demoting = !!user && user.role === 'ADMIN' && pending?.role !== undefined && pending.role !== 'ADMIN'
+  const confirmTitle = !user
+    ? ''
+    : deactivating && demoting
+      ? `Deactivate ${user.full_name} and remove admin access?`
+      : deactivating
+        ? `Deactivate ${user.full_name}?`
+        : `Remove admin access from ${user.full_name}?`
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !m.isPending && onOpenChange(o)}>
       <DialogContent>
         {user && (
-          <form noValidate className="grid gap-4" onSubmit={handleSubmit((v) => m.mutate(v, { onError: (e) => mapServerErrors(e, setError as never) }))}>
+          <form noValidate className="grid gap-4" onSubmit={handleSubmit(submit)}>
             <DialogHeader>
               <DialogTitle>Edit user</DialogTitle>
               <DialogDescription>{user.email}</DialogDescription>
@@ -170,6 +212,26 @@ export function EditUserDialog({ user, isSelf, onOpenChange }: { user: User | nu
             </DialogFooter>
           </form>
         )}
+        <ConfirmDialog
+          open={!!pending}
+          onOpenChange={(o) => !o && !m.isPending && setPending(null)}
+          title={confirmTitle}
+          destructive
+          loading={m.isPending}
+          confirmLabel={deactivating ? 'Deactivate user' : 'Change role'}
+          onConfirm={() => pending && send(pending)}
+          description={
+            <div className="grid gap-2">
+              {deactivating && <p>They will no longer be able to sign in. Their history and records are kept, and you can reactivate them later.</p>}
+              {demoting && pending?.role && (
+                <p>
+                  Their role changes to <strong className="text-foreground">{ROLE_META[pending.role].label}</strong>, so they lose user management and other
+                  admin-only settings.
+                </p>
+              )}
+            </div>
+          }
+        />
       </DialogContent>
     </Dialog>
   )
