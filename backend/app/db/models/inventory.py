@@ -74,6 +74,8 @@ class InventoryTransaction(Base):
         Index("ix_inventory_transactions_product_wh_created", "product_id", "warehouse_id", "created_at"),
         Index("ix_inventory_transactions_created_at", "created_at"),
         Index("ix_inventory_transactions_transfer_group", "transfer_group"),
+        # Traceability lookups (e.g. all movements for a PO number / sales order): seq scan → index.
+        Index("ix_inventory_transactions_reference", "reference"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

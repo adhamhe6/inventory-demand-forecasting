@@ -31,20 +31,30 @@ def _client_ip(request: Request) -> str:
     },
 )
 async def login(body: LoginRequest, request: Request, session: SessionDep) -> TokenResponse:
-    """Exchange email + password for a bearer token. Attempts are rate limited per
-    client IP and account (Redis fixed window) to slow down credential stuffing."""
+    """Exchange email + password for a bearer token.
+
+    Failed attempts are rate limited (Redis fixed window) in two independent buckets:
+    per account – so rotating source IPs cannot brute-force one user – and per client IP
+    (3× the account limit) – so one client cannot spray many accounts. A successful login
+    clears the account bucket.
+    """
     settings = get_settings()
     limiter = RateLimiter(get_redis())
-    bucket = f"login:{_client_ip(request)}:{body.email.lower()}"
-    allowed, retry_after = await limiter.hit(
-        bucket, settings.login_rate_limit_attempts, settings.login_rate_limit_window_seconds
-    )
-    if not allowed:
-        raise RateLimitedError(
-            "Too many login attempts. Please try again later.", details={"retry_after_seconds": retry_after}
-        )
+    window = settings.login_rate_limit_window_seconds
+    account_bucket = f"login:acct:{body.email.lower()}"
+    ip_bucket = f"login:ip:{_client_ip(request)}"
+    for bucket, limit in (
+        (account_bucket, settings.login_rate_limit_attempts),
+        (ip_bucket, settings.login_rate_limit_attempts * 3),
+    ):
+        allowed, retry_after = await limiter.hit(bucket, limit, window)
+        if not allowed:
+            raise RateLimitedError(
+                "Too many login attempts. Please try again later.",
+                details={"retry_after_seconds": retry_after},
+            )
     user = await UserService(session).authenticate(body.email, body.password)
-    await limiter.reset(bucket)
+    await limiter.reset(account_bucket)
     token, expires_in = create_access_token(user.id, user.role.value)
     return TokenResponse(access_token=token, expires_in=expires_in, user=UserRead.model_validate(user))
 
