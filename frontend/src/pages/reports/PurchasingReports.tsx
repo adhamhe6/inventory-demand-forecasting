@@ -5,10 +5,11 @@ import { ChartCard, chartTheme } from '@/components/common/ChartCard'
 import { CardsSkeleton, EmptyState, ErrorState, TableSkeleton } from '@/components/common/States'
 import { ActiveBadge, POStatusBadge } from '@/components/common/StatusBadge'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { POStatus } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
-import { ExportButton, SimpleTable, Stat, StatGrid, Toolbar } from './shared'
+import { ChartFigure, ExportButton, SimpleTable, Stat, StatGrid, Toolbar } from './shared'
 import { hideCls, useReport } from './lib'
 
 interface SupplierPerf {
@@ -85,22 +86,30 @@ export function SuppliersReport() {
           </StatGrid>
           <div className="grid items-start gap-6 [&>*]:min-w-0 2xl:grid-cols-5">
             <ChartCard className="2xl:col-span-2" title="On-time delivery rate" description="Share of received POs delivered on time" height={Math.max(200, chartRows.length * 40)}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartRows} layout="vertical" margin={{ top: 4, right: 40, left: 4, bottom: 0 }}>
-                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} tickFormatter={(x) => `${x}%`} tick={chartTheme.axis} tickLine={false} axisLine={false} />
-                  <YAxis type="category" dataKey="name" tick={chartTheme.axis} tickLine={false} axisLine={false} width={132} />
-                  <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} formatter={(x) => [`${Number(x).toFixed(1)}%`, 'On time']} />
-                  <Bar
-                    dataKey="on_time"
-                    fill="var(--chart-1)"
-                    radius={[0, 4, 4, 0]}
-                    barSize={18}
-                    animationDuration={500}
-                    label={{ position: 'right', fontSize: 11, fill: 'var(--muted-foreground)', formatter: (x: unknown) => `${Math.round(Number(x))}%` }}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              {chartRows.length === 0 ? (
+                <EmptyState title="No received purchase orders yet" description="On-time rates appear once deliveries are received." />
+              ) : (
+                <ChartFigure
+                  label={`Bar chart of on-time delivery rate by supplier: ${chartRows.map((r) => `${r.name} ${Math.round(r.on_time)}%`).join(', ')}.`}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartRows} layout="vertical" margin={{ top: 4, right: 40, left: 4, bottom: 0 }}>
+                      <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" domain={[0, 100]} tickFormatter={(x) => `${x}%`} tick={chartTheme.axis} tickLine={false} axisLine={false} />
+                      <YAxis type="category" dataKey="name" tick={chartTheme.axis} tickLine={false} axisLine={false} width={132} />
+                      <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} formatter={(x) => [`${Number(x).toFixed(1)}%`, 'On time']} />
+                      <Bar
+                        dataKey="on_time"
+                        fill="var(--chart-1)"
+                        radius={[0, 4, 4, 0]}
+                        barSize={18}
+                        animationDuration={500}
+                        label={{ position: 'right', fontSize: 11, fill: 'var(--muted-foreground)', formatter: (x: unknown) => `${Math.round(Number(x))}%` }}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartFigure>
+              )}
             </ChartCard>
             <Card className="2xl:col-span-3">
               <CardHeader>
@@ -169,6 +178,9 @@ export function SuppliersReport() {
 
 interface POReport {
   by_status: Array<{ status: POStatus; count: number; value: number; outstanding_units: number }>
+  /** Total overdue POs; `overdue` is capped at `overdue_list_limit` (most overdue first). */
+  overdue_count: number
+  overdue_list_limit: number
   overdue: Array<{ id: number; po_number: string; supplier_name: string; expected_delivery_date: string; status: POStatus; days_overdue: number }>
 }
 
@@ -193,6 +205,8 @@ export function PurchaseOrdersReport() {
   const d = q.data
   const rows = d ? [...d.by_status].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)) : []
   const open = rows.filter((r) => !['RECEIVED', 'CANCELLED'].includes(r.status))
+  const overdueCount = d ? (d.overdue_count ?? d.overdue.length) : 0
+  const openCount = open.reduce((s, r) => s + r.count, 0)
   return (
     <>
       <Toolbar actions={<ExportButton path="/purchase-orders" label="Export purchase orders" />}>
@@ -206,27 +220,41 @@ export function PurchaseOrdersReport() {
       ) : (
         <>
           <StatGrid>
-            <Stat label="Open POs" value={fmt.int(open.reduce((s, r) => s + r.count, 0))} hint="draft → partially received" />
+            <Stat label="Open POs" value={fmt.int(openCount)} hint="draft → partially received" />
             <Stat label="Open PO value" value={fmt.moneyCompact(open.reduce((s, r) => s + r.value, 0))} />
             <Stat label="Units outstanding" value={fmt.int(open.reduce((s, r) => s + r.outstanding_units, 0))} />
-            <Stat label="Overdue" value={fmt.int(d.overdue.length)} tone={d.overdue.length ? 'danger' : 'success'} hint="past expected delivery" />
+            <Stat label="Overdue" value={fmt.int(overdueCount)} tone={overdueCount ? 'danger' : 'success'} hint="past expected delivery" />
           </StatGrid>
           <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-2">
             <ChartCard title="Open pipeline" description="Open purchase orders by status (received and cancelled are in the table)">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={open} margin={{ top: 16, right: 8, left: -8, bottom: 0 }}>
-                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="status" tickFormatter={(x) => STATUS_LABEL[x as POStatus] ?? x} tick={chartTheme.axis} tickLine={false} axisLine={false} interval={0} />
-                  <YAxis tick={chartTheme.axis} tickLine={false} axisLine={false} width={48} allowDecimals={false} />
-                  <Tooltip
-                    {...chartTheme.tooltip}
-                    cursor={{ fill: 'var(--muted)' }}
-                    labelFormatter={(x) => STATUS_LABEL[x as POStatus] ?? String(x)}
-                    formatter={(x, _n, item) => [`${fmt.int(Number(x))} POs · ${fmt.money((item.payload as { value: number }).value)}`, 'Orders']}
-                  />
-                  <Bar dataKey="count" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={48} animationDuration={500} label={{ position: 'top', fontSize: 11, fill: 'var(--muted-foreground)' }} />
-                </BarChart>
-              </ResponsiveContainer>
+              {openCount === 0 ? (
+                <EmptyState
+                  title="No open purchase orders"
+                  description="Nothing is in the pipeline right now."
+                  action={
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to="/restocking">Review restocking</Link>
+                    </Button>
+                  }
+                />
+              ) : (
+                <ChartFigure label={`Bar chart of open purchase orders by status: ${open.map((r) => `${STATUS_LABEL[r.status]} ${r.count}`).join(', ')}.`}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={open} margin={{ top: 16, right: 8, left: -8, bottom: 0 }}>
+                      <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="status" tickFormatter={(x) => STATUS_LABEL[x as POStatus] ?? x} tick={chartTheme.axis} tickLine={false} axisLine={false} interval={0} />
+                      <YAxis tick={chartTheme.axis} tickLine={false} axisLine={false} width={48} allowDecimals={false} />
+                      <Tooltip
+                        {...chartTheme.tooltip}
+                        cursor={{ fill: 'var(--muted)' }}
+                        labelFormatter={(x) => STATUS_LABEL[x as POStatus] ?? String(x)}
+                        formatter={(x, _n, item) => [`${fmt.int(Number(x))} POs · ${fmt.money((item.payload as { value: number }).value)}`, 'Orders']}
+                      />
+                      <Bar dataKey="count" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={48} animationDuration={500} label={{ position: 'top', fontSize: 11, fill: 'var(--muted-foreground)' }} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartFigure>
+              )}
             </ChartCard>
             <Card>
               <CardHeader>
@@ -257,7 +285,10 @@ export function PurchaseOrdersReport() {
               <CardTitle className="flex items-center gap-2">
                 <AlertTriangle className="size-4 text-destructive" aria-hidden /> Overdue purchase orders
               </CardTitle>
-              <CardDescription>Open POs whose expected delivery date has passed</CardDescription>
+              <CardDescription>
+                Open POs whose expected delivery date has passed
+                {overdueCount > d.overdue.length && ` · showing the first ${fmt.int(d.overdue.length)} of ${fmt.int(overdueCount)}`}
+              </CardDescription>
             </CardHeader>
             {d.overdue.length === 0 ? (
               <EmptyState title="Nothing overdue" description="All open purchase orders are within their expected delivery dates." />

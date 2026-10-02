@@ -15,10 +15,10 @@ import {
 import { chartTheme } from '@/components/common/ChartCard'
 import type { ForecastWithHistory } from '@/lib/types'
 import { fmt } from '@/lib/utils'
-import { buildChartRows, type ChartRow } from './lib'
+import { buildChartRows, type ChartRow, intervalLabel } from './lib'
 
 
-function ChartTooltip({ active, payload, label }: Partial<TooltipContentProps<number, string>>) {
+function ChartTooltip({ active, payload, label, levelPct = null }: Partial<TooltipContentProps<number, string>> & { levelPct?: number | null }) {
   if (!active || !payload?.length) return null
   const row = payload[0].payload as ChartRow
   const isForecast = row.forecast != null
@@ -36,7 +36,7 @@ function ChartTooltip({ active, payload, label }: Partial<TooltipContentProps<nu
         <>
           <Row swatch={<Swatch kind="forecast" />} label="Forecast" value={`${fmt.num(row.forecast)} units`} />
           {row.band && (
-            <Row swatch={<Swatch kind="band" />} label="80% interval" value={`${fmt.num(row.band[0])} – ${fmt.num(row.band[1])}`} />
+            <Row swatch={<Swatch kind="band" />} label={intervalLabel(levelPct)} value={`${fmt.num(row.band[0])} – ${fmt.num(row.band[1])}`} />
           )}
         </>
       )}
@@ -77,12 +77,12 @@ export function Swatch({ kind }: { kind: 'actual' | 'ma' | 'forecast' | 'band' }
   )
 }
 
-export function ChartLegend({ showMa, hasForecast }: { showMa: boolean; hasForecast: boolean }) {
+export function ChartLegend({ showMa, hasForecast, levelPct = null }: { showMa: boolean; hasForecast: boolean; levelPct?: number | null }) {
   const items: Array<{ kind: 'actual' | 'ma' | 'forecast' | 'band'; label: string }> = [{ kind: 'actual', label: 'Actual' }]
   if (showMa) items.push({ kind: 'ma', label: '7-day average' })
-  if (hasForecast) items.push({ kind: 'forecast', label: 'Forecast' }, { kind: 'band', label: '80% interval' })
+  if (hasForecast) items.push({ kind: 'forecast', label: 'Forecast' }, { kind: 'band', label: intervalLabel(levelPct) })
   return (
-    <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Chart legend">
+    <ul role="list" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Chart legend">
       {items.map((i) => (
         <li key={i.kind} className="flex items-center gap-1.5">
           <Swatch kind={i.kind} />
@@ -93,14 +93,29 @@ export function ChartLegend({ showMa, hasForecast }: { showMa: boolean; hasForec
   )
 }
 
-export function ForecastChart({ data, showMa, height = 340 }: { data: ForecastWithHistory; showMa: boolean; height?: number }) {
+export function ForecastChart({
+  data,
+  showMa,
+  height = 340,
+  levelPct = null,
+}: {
+  data: ForecastWithHistory
+  showMa: boolean
+  height?: number
+  /** Prediction-interval level in percent (e.g. 80); null when unknown. */
+  levelPct?: number | null
+}) {
   const rows = useMemo(() => buildChartRows(data, showMa), [data, showMa])
   const firstForecast = rows.find((r) => r.forecast != null)?.date
   const lastDate = rows.at(-1)?.date
   const span = rows.length
 
   return (
-    <div style={{ height }} role="img" aria-label="Daily demand history with forecast and 80% prediction interval">
+    <div
+      style={{ height }}
+      role="img"
+      aria-label={`Daily demand history${firstForecast ? ` with forecast and ${levelPct == null ? '' : `${levelPct}% `}prediction interval` : ''}`}
+    >
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={rows} margin={{ top: 20, right: 12, left: -8, bottom: 0 }}>
           <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
@@ -116,7 +131,7 @@ export function ForecastChart({ data, showMa, height = 340 }: { data: ForecastWi
             minTickGap={span > 200 ? 48 : 28}
           />
           <YAxis tick={chartTheme.axis} tickLine={false} axisLine={false} width={48} allowDecimals={false} />
-          <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }} />
+          <Tooltip content={<ChartTooltip levelPct={levelPct} />} cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }} />
           <Area
             dataKey="band"
             stroke="none"

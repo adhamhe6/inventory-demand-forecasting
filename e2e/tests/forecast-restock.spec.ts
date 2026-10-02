@@ -34,8 +34,8 @@ test('forecast job runs in the background worker and the chart shows the result'
  */
 test('restocking recommendation becomes a purchase order', async ({ page, request }) => {
   const api = await apiAs(request)
-  const recs = await api.get('/restocking')
-  const rec = recs.find((r: { supplier_id: number | null; demand_source: string }) => r.supplier_id && r.demand_source === 'FORECAST')
+  const recs = await api.get('/restocking?page_size=200')
+  const rec = recs.items.find((r: { supplier_id: number | null; demand_source: string }) => r.supplier_id && r.demand_source === 'FORECAST')
   test.skip(!rec, 'no recommendation available in this dataset')
 
   await login(page)
@@ -48,8 +48,8 @@ test('restocking recommendation becomes a purchase order', async ({ page, reques
   const pos = await api.get(`/purchase-orders?product_id=${rec.product_id}&status=DRAFT&sort=-created_at`)
   const po = pos.items[0]
   expect(po.total_units).toBe(rec.recommended_quantity)
-  const remaining = await api.get('/restocking')
-  expect(remaining.find((r: { inventory_item_id: number }) => r.inventory_item_id === rec.inventory_item_id)).toBeUndefined()
+  const remaining = await api.get(`/restocking?search=${rec.sku}&page_size=200`)
+  expect(remaining.items.find((r: { inventory_item_id: number }) => r.inventory_item_id === rec.inventory_item_id)).toBeUndefined()
 
   await page.goto('/purchase-orders?status=DRAFT')
   await expect(page.getByText(po.po_number)).toBeVisible()

@@ -32,7 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ApiError, api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useUrlState } from '@/lib/hooks'
-import type { InventoryItem, ProductDetail, PurchaseOrderSummary, RestockRecommendation, Sale, StockRisk } from '@/lib/types'
+import type { InventoryItem, ProductDetail, PurchaseOrderSummary, RestockPage, Sale, StockRiskPage } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 import { marginOf } from './formUtils'
 import { ProductFormDialog } from './ProductFormDialog'
@@ -300,7 +300,7 @@ export default function ProductDetailPage() {
 
         <TabsContent value="purchase-orders">{p && <ProductPurchaseOrders productId={p.id} />}</TabsContent>
 
-        <TabsContent value="sales">{p && <RecentSales productId={p.id} sku={p.sku} unit={p.unit} />}</TabsContent>
+        <TabsContent value="sales">{p && <RecentSales productId={p.id} unit={p.unit} />}</TabsContent>
       </Tabs>
 
       <ProductFormDialog open={editOpen} onOpenChange={setEditOpen} product={p ?? null} />
@@ -396,9 +396,9 @@ function StockByWarehouse({
 
 function ShortageRiskCard({ productId, sku }: { productId: number; sku: string }) {
   const q = useQuery({
-    queryKey: qk.shortages({ min_risk: 'NONE', search: sku }),
-    queryFn: ({ signal }) => api.get<StockRisk[]>('/shortages', { min_risk: 'NONE', search: sku }, signal),
-    select: (rows) => rows.filter((r) => r.product_id === productId),
+    queryKey: qk.shortages({ min_risk: 'NONE', search: sku, page_size: 200 }),
+    queryFn: ({ signal }) => api.get<StockRiskPage>('/shortages', { min_risk: 'NONE', search: sku, page_size: 200 }, signal),
+    select: (page) => page.items.filter((r) => r.product_id === productId),
   })
   return (
     <Card>
@@ -465,9 +465,9 @@ function ShortageRiskCard({ productId, sku }: { productId: number; sku: string }
 function RestockCard({ productId, sku }: { productId: number; sku: string }) {
   const { can } = useAuth()
   const q = useQuery({
-    queryKey: qk.restocking({ search: sku }),
-    queryFn: ({ signal }) => api.get<RestockRecommendation[]>('/restocking', { search: sku }, signal),
-    select: (rows) => rows.filter((r) => r.product_id === productId),
+    queryKey: qk.restocking({ search: sku, page_size: 200 }),
+    queryFn: ({ signal }) => api.get<RestockPage>('/restocking', { search: sku, page_size: 200 }, signal),
+    select: (page) => page.items.filter((r) => r.product_id === productId),
   })
   return (
     <Card>
@@ -512,7 +512,7 @@ function RestockCard({ productId, sku }: { productId: number; sku: string }) {
                 <p className="mt-2 text-xs text-muted-foreground">{r.rationale}</p>
                 {r.supplier_id && can('manage_purchase_orders') && (
                   <Button variant="link" size="sm" className="mt-1 h-auto px-0" asChild>
-                    <Link to={`/purchase-orders/new?supplier_id=${r.supplier_id}&warehouse_id=${r.warehouse_id}`}>
+                    <Link to={`/purchase-orders/new?supplier_id=${r.supplier_id}&warehouse_id=${r.warehouse_id}&product_id=${r.product_id}&quantity=${r.recommended_quantity}`}>
                       Create purchase order with {r.supplier_name} <ArrowRight />
                     </Link>
                   </Button>
@@ -595,7 +595,7 @@ function ProductPurchaseOrders({ productId }: { productId: number }) {
 
 /* ------------------------------------------------------------------ recent sales */
 
-function RecentSales({ productId, sku, unit }: { productId: number; sku: string; unit: string }) {
+function RecentSales({ productId, unit }: { productId: number; unit: string }) {
   const query = { product_id: productId, page_size: 10, sort: '-sold_at' }
   const q = usePaged<Sale>(qk.sales(query), '/sales', query)
   const columns: Column<Sale>[] = [
@@ -614,7 +614,7 @@ function RecentSales({ productId, sku, unit }: { productId: number; sku: string;
           <CardDescription>{q.data ? `Latest 10 of ${fmt.int(q.data.total)} sales` : 'Latest 10 sales'}</CardDescription>
         </div>
         <Button variant="ghost" size="sm" asChild>
-          <Link to={`/sales?search=${encodeURIComponent(sku)}`}>
+          <Link to={`/sales?product_id=${productId}`}>
             All sales <ArrowRight />
           </Link>
         </Button>

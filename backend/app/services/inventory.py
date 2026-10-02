@@ -39,11 +39,13 @@ from app.services.common import PageParams, apply_sort, paginate
 logger = logging.getLogger(__name__)
 
 EFFECTIVE_SAFETY = func.coalesce(InventoryItem.safety_stock, Product.safety_stock)
+# Below the product's minimum stock threshold is always critical, whatever the safety stock.
+CRITICAL_LEVEL = func.greatest(EFFECTIVE_SAFETY, Product.min_stock)
 EFFECTIVE_ROP = func.coalesce(InventoryItem.reorder_point, Product.reorder_point)
 
 STATUS_EXPR = case(
     (InventoryItem.available_quantity <= 0, StockStatus.OUT_OF_STOCK.value),
-    (InventoryItem.available_quantity <= EFFECTIVE_SAFETY, StockStatus.CRITICAL.value),
+    (InventoryItem.available_quantity <= CRITICAL_LEVEL, StockStatus.CRITICAL.value),
     (InventoryItem.available_quantity <= EFFECTIVE_ROP, StockStatus.LOW_STOCK.value),
     else_=StockStatus.HEALTHY.value,
 )

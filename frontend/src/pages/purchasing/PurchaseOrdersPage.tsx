@@ -111,6 +111,7 @@ export default function PurchaseOrdersPage() {
   const openValue = OPEN.reduce((n, s) => n + (byStatus.get(s)?.value ?? 0), 0)
   const inboundUnits = OPEN.filter((s) => s !== 'DRAFT').reduce((n, s) => n + (byStatus.get(s)?.outstanding_units ?? 0), 0)
   const overdue = report.data?.overdue ?? []
+  const overdueCount = report.data?.overdue_count ?? overdue.length
 
   const columns: Column<PurchaseOrderSummary>[] = [
     {
@@ -222,14 +223,19 @@ export default function PurchaseOrdersPage() {
               <PopoverTrigger asChild>
                 <SummaryTile
                   label="Overdue"
-                  value={fmt.int(overdue.length)}
-                  hint={overdue.length ? 'Past expected delivery' : 'Everything is on schedule'}
+                  value={fmt.int(overdueCount)}
+                  hint={overdueCount ? 'Past expected delivery' : 'Everything is on schedule'}
                   icon={<AlarmClock />}
-                  tone={overdue.length ? 'danger' : 'success'}
+                  tone={overdueCount ? 'danger' : 'success'}
                 />
               </PopoverTrigger>
               <PopoverContent className="w-80 p-2">
                 <p className="px-2 py-1.5 text-sm font-semibold">Overdue deliveries</p>
+                {overdueCount > overdue.length && (
+                  <p className="px-2 pb-1.5 text-xs text-muted-foreground">
+                    Showing the {fmt.int(overdue.length)} most overdue of {fmt.int(overdueCount)}
+                  </p>
+                )}
                 {overdue.length === 0 ? (
                   <p className="px-2 pb-2 text-sm text-muted-foreground">No open orders are past their expected delivery date.</p>
                 ) : (

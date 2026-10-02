@@ -146,6 +146,7 @@ export async function downloadCsv(path: string, query: Query = {}, fallbackName 
   const res = await fetch(`${API_BASE}${path}${buildQuery({ ...query, format: 'csv' })}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
+  if (res.status === 401 && token) unauthorizedListeners.forEach((fn) => fn())
   if (!res.ok) throw await parseError(res)
   const blob = await res.blob()
   const disposition = res.headers.get('Content-Disposition') ?? ''

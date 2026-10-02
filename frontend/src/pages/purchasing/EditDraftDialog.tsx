@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input, Textarea } from '@/components/ui/input'
 import { ApiError, api } from '@/lib/api'
-import type { PurchaseOrder } from '@/lib/types'
+import type { Product, PurchaseOrder } from '@/lib/types'
 import { fmt } from '@/lib/utils'
+import { LookupError } from '../shared/LookupError'
 import { LineItemsEditor } from './LineItemsEditor'
 import { lineTotal, poBusinessErrorField, type POFormValues, poSchema, renamePoField, toApiLines } from './poForm'
 import { applyServerErrors, PO_RELATED_KEYS } from './utils'
@@ -19,7 +20,35 @@ import { applyServerErrors, PO_RELATED_KEYS } from './utils'
 /** Edit a DRAFT order's delivery date, notes and lines (PATCH replaces all lines). */
 export function EditDraftDialog({ po, open, onOpenChange }: { po: PurchaseOrder; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient()
-  const products = useAllProducts()
+  // Include inactive products so existing lines that reference one still resolve.
+  const products = useAllProducts({ includeInactive: true })
+  const lineProducts = useMemo<Product[] | undefined>(() => {
+    if (!products.data) return undefined
+    const known = new Set(products.data.map((p) => p.id))
+    // Anything the catalogue no longer returns is synthesised from the PO line so the row still renders.
+    const missing: Product[] = po.lines
+      .filter((l) => !known.has(l.product_id))
+      .map((l) => ({
+        id: l.product_id,
+        sku: l.sku,
+        name: l.product_name,
+        description: null,
+        category: '—',
+        unit: 'unit',
+        cost: l.unit_cost,
+        price: l.unit_cost,
+        min_stock: 0,
+        reorder_point: 0,
+        safety_stock: 0,
+        lead_time_days: 0,
+        is_active: false,
+        supplier_id: po.supplier_id,
+        supplier: null,
+        created_at: po.created_at,
+        updated_at: po.created_at,
+      }))
+    return missing.length ? [...products.data, ...missing] : products.data
+  }, [products.data, po])
   const schema = useMemo(() => poSchema(po.order_date, 'Cannot be before the order date'), [po.order_date])
   const form = useForm<POFormValues>({ resolver: zodResolver(schema) })
   const { register, handleSubmit, reset, setError, control, formState } = form
@@ -82,7 +111,8 @@ export function EditDraftDialog({ po, open, onOpenChange }: { po: PurchaseOrder;
               <Textarea id="edit-notes" rows={1} className="min-h-9" {...register('notes')} />
             </Field>
           </div>
-          <LineItemsEditor form={form} products={products.data} productsLoading={products.isLoading} supplierId={po.supplier_id} supplierName={po.supplier_name} />
+          <LookupError lookups={{ products }} context="— existing lines still show, but the product list may be incomplete" />
+          <LineItemsEditor form={form} products={lineProducts} productsLoading={products.isLoading} supplierId={po.supplier_id} supplierName={po.supplier_name} />
           <DialogFooter className="items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
               New total <span className="font-semibold text-foreground tabular">{fmt.money(total)}</span>

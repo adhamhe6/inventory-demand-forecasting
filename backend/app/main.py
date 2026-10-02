@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging, request_id_ctx, user_id_ctx
 from app.db.database import dispose_engine, get_engine
+from app.forecasting.pipeline import INTERVAL_LEVEL
 from app.workers.dispatch import ArqDispatcher, InlineDispatcher
 
 logger = logging.getLogger("app")
@@ -200,7 +201,8 @@ def create_app() -> FastAPI:
         description=(
             "Multi-warehouse inventory, purchasing and sales with demand forecasting, shortage "
             "detection and restocking recommendations.\n\n"
-            "**Authenticate**: `POST /api/v1/auth/login` → copy `access_token` → *Authorize* button.\n\n"
+            "**Authenticate**: click *Authorize* and sign in with your email (username) and password "
+            "(demo: `admin@example.com` / `ChangeMe123!`), or `POST /api/v1/auth/login` for a JSON token.\n\n"
             'Errors always have the shape `{"error": {"code", "message", "details"}, "request_id"}`.'
         ),
         openapi_tags=OPENAPI_TAGS,
@@ -236,6 +238,19 @@ def create_app() -> FastAPI:
         reports.router,
     ):
         app.include_router(router, prefix=prefix)
+
+    @app.get(f"{prefix}/meta", tags=["Health"], summary="Public client configuration")
+    async def meta() -> dict[str, Any]:
+        """Non-sensitive settings the UI needs (so it never hard-codes them)."""
+        return {
+            "app_name": settings.app_name,
+            "version": app.version,
+            "environment": settings.environment,
+            "demo_mode": settings.seed_demo_data,
+            "max_import_file_mb": settings.max_import_file_mb,
+            "forecast_interval_level": INTERVAL_LEVEL,
+            "restock_review_period_days": settings.restock_review_period_days,
+        }
 
     @app.get("/health", tags=["Health"], summary="Liveness probe")
     async def health() -> dict[str, str]:

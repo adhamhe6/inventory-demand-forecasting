@@ -113,7 +113,12 @@ export function DataTable<T>({
               onKeyDown={
                 onRowClick
                   ? (e) => {
-                      if (e.key === 'Enter') onRowClick(row)
+                      // Only when the row itself has focus, so nested buttons/checkboxes keep their own keys.
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onRowClick(row)
+                      }
                     }
                   : undefined
               }

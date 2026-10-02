@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowDownRight, ArrowUpRight, CheckCircle2, Minus } from 'lucide-react'
-import { qk } from '@/api/queries'
+import { qk, useMeta } from '@/api/queries'
 import { api } from '@/lib/api'
 import type { ForecastWithHistory } from '@/lib/types'
 import { fmt } from '@/lib/utils'
@@ -58,4 +58,24 @@ interface ForecastAccuracy {
 
 export function useForecastAccuracy() {
   return useQuery({ queryKey: qk.reports('forecast-accuracy'), queryFn: () => api.get<ForecastAccuracy>('/reports/forecast-accuracy') })
+}
+
+/** Normalises an interval level (0.8 or 80) to a whole percentage. */
+export function toLevelPct(level: number | null | undefined): number | null {
+  if (level == null || !Number.isFinite(level) || level <= 0) return null
+  return level <= 1 ? Math.round(level * 100) : Math.round(level)
+}
+
+/**
+ * Prediction-interval level as a percentage: the forecast run's own `details.interval.level` when known,
+ * else the server default from GET /meta. `null` while neither is available.
+ */
+export function useIntervalPct(runLevel?: number | null): number | null {
+  const meta = useMeta()
+  return toLevelPct(runLevel) ?? toLevelPct(meta.data?.forecast_interval_level)
+}
+
+/** "80% interval" (or "Prediction interval" when the level is unknown). */
+export function intervalLabel(pct: number | null, noun = 'interval'): string {
+  return pct == null ? `Prediction ${noun}` : `${pct}% ${noun}`
 }

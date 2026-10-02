@@ -33,6 +33,21 @@ export default function PurchaseOrderCreatePage() {
   const today = todayIso()
   const schema = useMemo(() => poSchema(today), [today])
 
+  // Optional prefill from deep links, e.g. a restock recommendation:
+  // /purchase-orders/new?supplier_id=6&warehouse_id=1&product_id=10&quantity=40
+  const prefillProductId = Number(params.get('product_id')) || 0
+  const prefillQuantity = Number(params.get('quantity'))
+  // Only the URL at mount matters: later edits belong to the form.
+  const [initialLine] = useState(() =>
+    prefillProductId > 0
+      ? {
+          ...emptyLine(),
+          product_id: prefillProductId,
+          quantity: (Number.isInteger(prefillQuantity) && prefillQuantity > 0 ? prefillQuantity : '') as unknown as number,
+        }
+      : emptyLine(),
+  )
+
   const activeSuppliers = useMemo(() => suppliers.data?.filter((s) => s.status === 'ACTIVE') ?? [], [suppliers.data])
   const activeWarehouses = useMemo(() => warehouses.data?.filter((w) => w.status === 'ACTIVE') ?? [], [warehouses.data])
 
@@ -43,7 +58,7 @@ export default function PurchaseOrderCreatePage() {
       warehouse_id: (Number(params.get('warehouse_id')) || '') as unknown as number,
       expected_delivery_date: '',
       notes: '',
-      lines: [emptyLine()],
+      lines: [initialLine],
     },
   })
   const { register, handleSubmit, setValue, setError, formState, control, getValues } = form
@@ -73,6 +88,15 @@ export default function PurchaseOrderCreatePage() {
     if (!id && activeWarehouses.length === 1) setValue('warehouse_id', activeWarehouses[0].id)
     else if (id) setValue('warehouse_id', activeWarehouses.some((w) => w.id === id) ? id : ('' as unknown as number))
   }, [activeWarehouses, getValues, setValue])
+
+  // Seed the prefilled line's unit cost from the product's cost once products load.
+  useEffect(() => {
+    if (!prefillProductId || !products.data) return
+    const p = products.data.find((x) => x.id === prefillProductId)
+    if (!p) return
+    const first = getValues('lines.0')
+    if (Number(first?.product_id) === prefillProductId && !first?.unit_cost) setValue('lines.0.unit_cost', Number(p.cost).toFixed(2))
+  }, [prefillProductId, products.data, getValues, setValue])
 
   const validLines = lines.filter((l) => Number(l?.product_id) > 0)
   const total = lines.reduce((sum, l) => sum + lineTotal(l?.quantity, l?.unit_cost), 0)

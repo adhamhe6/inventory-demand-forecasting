@@ -45,3 +45,16 @@ describe('DataTable', () => {
     expect(onPage).toHaveBeenCalledWith(2)
   })
 })
+
+describe('DataTable row activation', () => {
+  it('opens a focused row with Enter or Space but ignores keys from nested controls', () => {
+    const onRowClick = vi.fn()
+    const cols: Column<Row>[] = [...columns, { key: 'act', header: 'Action', cell: () => <button type="button">Act</button> }]
+    render(<DataTable columns={cols} rows={[{ id: 1, name: 'Alpha' }]} rowKey={(r) => r.id} onRowClick={onRowClick} />)
+    const row = screen.getByText('Alpha').closest('tr')!
+    fireEvent.keyDown(row, { key: ' ' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Act' }), { key: 'Enter' })
+    expect(onRowClick).toHaveBeenCalledTimes(2)
+  })
+})

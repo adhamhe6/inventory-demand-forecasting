@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { useMeta } from '@/api/queries'
 
 const schema = z.object({
   email: z.string().min(1, 'Email is required').email('Enter a valid email address'),
@@ -19,11 +20,15 @@ type FormValues = z.infer<typeof schema>
 
 const YEAR = new Date().getFullYear()
 
+// Accounts created by the demo seed (backend/app/scripts/seed.py). Only offered when the server
+// reports demo_mode, so a production deployment never advertises credentials.
+const DEMO_PASSWORD = 'DemoPass123!'
 const DEMO_ACCOUNTS = [
-  { label: 'Admin', email: 'admin@example.com', password: 'ChangeMe123!' },
-  { label: 'Warehouse', email: 'warehouse@demo.example', password: 'DemoPass123!' },
-  { label: 'Purchasing', email: 'purchasing@demo.example', password: 'DemoPass123!' },
-  { label: 'Analyst', email: 'analyst@demo.example', password: 'DemoPass123!' },
+  { label: 'Admin', email: 'admin@demo.example' },
+  { label: 'Inventory', email: 'inventory@demo.example' },
+  { label: 'Warehouse', email: 'warehouse@demo.example' },
+  { label: 'Purchasing', email: 'purchasing@demo.example' },
+  { label: 'Analyst', email: 'analyst@demo.example' },
 ]
 
 export default function LoginPage() {
@@ -31,6 +36,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const [error, setError] = useState<unknown>(null)
+  const meta = useMeta()
   const {
     register,
     handleSubmit,
@@ -109,25 +115,29 @@ export default function LoginPage() {
               Sign in
             </Button>
           </form>
-          <div className="rounded-lg border bg-muted/40 p-3">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Demo accounts (seeded data)</p>
-            <div className="flex flex-wrap gap-1.5">
-              {DEMO_ACCOUNTS.map((a) => (
-                <Button
-                  key={a.email}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setValue('email', a.email, { shouldValidate: true })
-                    setValue('password', a.password, { shouldValidate: true })
-                  }}
-                >
-                  {a.label}
-                </Button>
-              ))}
+          {meta.data?.demo_mode && (
+            <div className="rounded-lg border bg-muted/40 p-3">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Demo accounts (seeded data, password <code>{DEMO_PASSWORD}</code>)
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {DEMO_ACCOUNTS.map((a) => (
+                  <Button
+                    key={a.email}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setValue('email', a.email, { shouldValidate: true })
+                      setValue('password', DEMO_PASSWORD, { shouldValidate: true })
+                    }}
+                  >
+                    {a.label}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

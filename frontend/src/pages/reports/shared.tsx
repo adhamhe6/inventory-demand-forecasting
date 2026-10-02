@@ -122,3 +122,12 @@ export function SimpleTable({ caption, head, children }: { caption: string; head
   )
 }
 
+
+/** Text alternative for a chart: screen readers announce `label` instead of the SVG internals. */
+export function ChartFigure({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div role="img" aria-label={label} className="size-full">
+      {children}
+    </div>
+  )
+}

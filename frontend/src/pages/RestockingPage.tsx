@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertOctagon, CheckCircle2, CircleDollarSign, HelpCircle, PackageSearch, ShoppingCart, SlidersHorizontal, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -19,11 +19,11 @@ import { Tooltip } from '@/components/ui/tooltip'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useUrlState } from '@/lib/hooks'
-import type { RestockRecommendation } from '@/lib/types'
+import type { RestockPage, RestockRecommendation } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 import { Checkbox, ExportCsvButton, InfoCallout } from './purchasing/shared'
 import { DEMAND_SOURCE_LABEL } from './risk/riskUtils'
-import { buildRestockPlan, qtyError, sortRecommendations } from './risk/restockUtils'
+import { buildRestockPlan, qtyError } from './risk/restockUtils'
 
 const DEFAULTS = { warehouse_id: '', supplier_id: '', search: '', sort: 'risk', page: 1, page_size: 50 }
 
@@ -41,16 +41,22 @@ export default function RestockingPage() {
   const activeSuppliers = useMemo(() => suppliers.data?.filter((s) => s.status === 'ACTIVE') ?? [], [suppliers.data])
   const canCreate = can('manage_purchase_orders')
 
-  const params = { warehouse_id: f.warehouse_id, supplier_id: f.supplier_id, search: f.search }
-  const q = useQuery({ queryKey: qk.restocking(params), queryFn: ({ signal }) => api.get<RestockRecommendation[]>('/restocking', params, signal) })
+  // Sorting and pagination are server-side; `summary` totals the whole result set.
+  const params = { warehouse_id: f.warehouse_id, supplier_id: f.supplier_id, search: f.search, sort: f.sort, page: f.page, page_size: f.page_size }
+  const q = useQuery({
+    queryKey: qk.restocking(params),
+    queryFn: ({ signal }) => api.get<RestockPage>('/restocking', params, signal),
+    placeholderData: keepPreviousData,
+  })
 
   const [qty, setQty] = useState<Record<number, string>>({})
   const [supplierFor, setSupplierFor] = useState<Record<number, number>>({})
-  const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Keyed by inventory item; keeps the row so selections survive paging/sorting.
+  const [selected, setSelected] = useState<Map<number, RestockRecommendation>>(new Map())
   const [confirming, setConfirming] = useState(false)
   const [created, setCreated] = useState<CreatedPOs | null>(null)
 
-  const rows = useMemo(() => sortRecommendations(q.data ?? [], f.sort), [q.data, f.sort])
+  const rows = useMemo(() => q.data?.items ?? [], [q.data])
   const supplierName = useMemo(() => new Map(suppliers.data?.map((s) => [s.id, s.name])), [suppliers.data])
   const qtyOf = (r: RestockRecommendation) => qty[r.inventory_item_id] ?? String(r.recommended_quantity)
   const supplierOf = (r: RestockRecommendation) => r.supplier_id ?? supplierFor[r.inventory_item_id] ?? null
@@ -60,22 +66,23 @@ export default function RestockingPage() {
   }
   const selectable = (r: RestockRecommendation) => !!supplierOf(r) && !qtyError(qtyOf(r))
 
-  // Selection only counts rows still present in the current result set.
-  const selectedRows = rows.filter((r) => selected.has(r.inventory_item_id))
+  const selectedRows = [...selected.values()]
   const validSelected = selectedRows.filter(selectable)
   const plan = buildRestockPlan(validSelected, { qtyOf, supplierOf, supplierName: (id) => supplierName.get(id) ?? `Supplier #${id}` })
   const selectableRows = rows.filter(selectable)
   const allSelected = selectableRows.length > 0 && selectableRows.every((r) => selected.has(r.inventory_item_id))
   const someSelected = selectedRows.length > 0 && !allSelected
 
-  const totalCost = rows.reduce((n, r) => n + costOf(r), 0)
-  const criticalCount = rows.filter((r) => r.risk_level === 'CRITICAL').length
-  const noSupplierCount = rows.filter((r) => !r.supplier_id).length
+  const summary = q.data?.summary
+  const totalCost = summary?.total_estimated_cost ?? 0
+  const criticalCount = summary?.critical ?? 0
+  const noSupplierCount = summary?.without_supplier ?? 0
 
   const toggle = (id: number, on: boolean) =>
     setSelected((prev) => {
-      const next = new Set(prev)
-      if (on) next.add(id)
+      const next = new Map(prev)
+      const row = rows.find((r) => r.inventory_item_id === id)
+      if (on && row) next.set(id, row)
       else next.delete(id)
       return next
     })
@@ -88,7 +95,7 @@ export default function RestockingPage() {
     onSuccess: (res) => {
       ;[['restocking'], ['shortages'], ['purchase-orders'], ['dashboard'], ['reports'], ['suppliers']].forEach((key) => qc.invalidateQueries({ queryKey: key }))
       setCreated(res)
-      setSelected(new Set())
+      setSelected(new Map())
       setQty({})
       setConfirming(false)
       toast.success(`Created ${res.po_numbers.length} draft purchase order${res.po_numbers.length === 1 ? '' : 's'}`, {
@@ -129,11 +136,17 @@ export default function RestockingPage() {
             key: 'select',
             header: (
               <Checkbox
-                aria-label="Select all orderable items"
+                aria-label="Select all orderable items on this page"
                 checked={allSelected}
                 indeterminate={someSelected}
                 disabled={selectableRows.length === 0}
-                onChange={(e) => setSelected(e.target.checked ? new Set(selectableRows.map((r) => r.inventory_item_id)) : new Set())}
+                onChange={(e) =>
+                  setSelected((prev) => {
+                    const next = new Map(prev)
+                    selectableRows.forEach((r) => (e.target.checked ? next.set(r.inventory_item_id, r) : next.delete(r.inventory_item_id)))
+                    return next
+                  })
+                }
               />
             ),
             headerClassName: 'w-10',
@@ -349,8 +362,8 @@ export default function RestockingPage() {
           Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-[74px] rounded-xl" />)
         ) : (
           [
-            { label: 'Items to reorder', value: fmt.int(rows.length), hint: noSupplierCount ? `${noSupplierCount} without a supplier` : 'All have a supplier', icon: <PackageSearch />, tone: 'bg-primary/10 text-primary' },
-            { label: 'Total estimated cost', value: fmt.money(totalCost), hint: 'At current unit costs', icon: <CircleDollarSign />, tone: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400' },
+            { label: 'Items to reorder', value: fmt.int(summary?.items ?? 0), hint: noSupplierCount ? `${noSupplierCount} without a supplier` : 'All have a supplier', icon: <PackageSearch />, tone: 'bg-primary/10 text-primary' },
+            { label: 'Total estimated cost', value: fmt.money(totalCost), hint: 'Recommended quantities at current unit costs', icon: <CircleDollarSign />, tone: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400' },
             {
               label: 'Critical items',
               value: fmt.int(criticalCount),
@@ -403,7 +416,7 @@ export default function RestockingPage() {
         <DataTable
           caption="Restocking recommendations"
           columns={columns}
-          rows={q.data ? rows.slice((f.page - 1) * f.page_size, f.page * f.page_size) : undefined}
+          rows={q.data?.items}
           rowKey={(r) => r.inventory_item_id}
           loading={q.isFetching}
           error={q.error}
@@ -434,7 +447,7 @@ export default function RestockingPage() {
           }
           page={f.page}
           pageSize={f.page_size}
-          total={q.data ? rows.length : undefined}
+          total={q.data?.total}
           onPageChange={(page) => setF({ page }, { resetPage: false })}
           onPageSizeChange={(page_size) => setF({ page_size })}
         />
@@ -448,7 +461,7 @@ export default function RestockingPage() {
             <span className="font-semibold tabular">{fmt.money(plan.total)}</span>
           </p>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => setSelected(new Set())}>
+            <Button variant="ghost" onClick={() => setSelected(new Map())}>
               Clear
             </Button>
             <Button onClick={() => setConfirming(true)}>

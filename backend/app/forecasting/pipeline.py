@@ -25,7 +25,8 @@ from app.forecasting.preprocessing import ForecastDataError, profile_series
 logger = logging.getLogger(__name__)
 
 PIPELINE_VERSION = "1.0"
-INTERVAL_Z = 1.2816  # two-sided 80% normal quantile
+INTERVAL_LEVEL = 0.8
+INTERVAL_Z = 1.2816  # two-sided 80% normal quantile (matches INTERVAL_LEVEL)
 
 
 @dataclass
@@ -146,7 +147,11 @@ def _result(
     details: dict[str, Any],
 ) -> ForecastResult:
     width = INTERVAL_Z * max(sigma, 0.0)
-    details["interval"] = {"level": 0.8, "method": "empirical holdout residual std", "sigma": round(sigma, 4)}
+    details["interval"] = {
+        "level": INTERVAL_LEVEL,
+        "method": "empirical holdout residual std",
+        "sigma": round(sigma, 4),
+    }
     return ForecastResult(
         model_name=chosen.name,
         model_version=f"{PIPELINE_VERSION}/{chosen.version}",

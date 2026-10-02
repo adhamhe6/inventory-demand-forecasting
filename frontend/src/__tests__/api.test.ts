@@ -76,3 +76,18 @@ describe('roleCan mirrors the backend permission matrix', () => {
     expect(roleCan(role, perm)).toBe(expected)
   })
 })
+
+describe('downloadCsv', () => {
+  it('notifies the auth layer when the token was rejected', async () => {
+    tokenStore.set('expired')
+    const listener = vi.fn()
+    const off = onUnauthorized(listener)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'Token expired' } }, 401),
+    )
+    const { downloadCsv } = await import('@/lib/api')
+    await expect(downloadCsv('/reports/low-stock')).rejects.toMatchObject({ status: 401 })
+    expect(listener).toHaveBeenCalledOnce()
+    off()
+  })
+})

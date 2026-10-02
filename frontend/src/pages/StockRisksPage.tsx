@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { ArrowRight, Calculator, ClipboardList, ShieldCheck, SlidersHorizontal } from 'lucide-react'
-import { type CSSProperties, useMemo, useState } from 'react'
+import { type CSSProperties, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { qk, useAllWarehouses, useCategories } from '@/api/queries'
 import { type Column, DataTable } from '@/components/common/DataTable'
@@ -16,11 +16,10 @@ import { NativeSelect } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import { useUrlState } from '@/lib/hooks'
-import type { RiskLevel, StockRisk } from '@/lib/types'
+import type { RiskLevel, StockRisk, StockRiskPage } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 import { ExportCsvButton, InfoCallout } from './purchasing/shared'
-import { RISK_RANK } from './purchasing/utils'
-import { DEMAND_SOURCE_LABEL, effectiveInbound, sortRisks } from './risk/riskUtils'
+import { DEMAND_SOURCE_LABEL, effectiveInbound } from './risk/riskUtils'
 
 const DEFAULTS = { min_risk: 'LOW', level: '', warehouse_id: '', category: '', search: '', sort: 'risk', page: 1, page_size: 25 }
 const LEVELS: RiskLevel[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
@@ -49,25 +48,24 @@ export default function StockRisksPage() {
   const categories = useCategories()
   const [selected, setSelected] = useState<StockRisk | null>(null)
 
-  // One request (≥ LOW, or everything incl. NONE); risk thresholds are applied client-side so the
-  // summary cards always show the full distribution for the current warehouse/category/search.
-  const fetchMin = f.min_risk === 'NONE' ? 'NONE' : 'LOW'
-  const params = { min_risk: fetchMin, warehouse_id: f.warehouse_id, category: f.category, search: f.search }
-  const q = useQuery({ queryKey: qk.shortages(params), queryFn: ({ signal }) => api.get<StockRisk[]>('/shortages', params, signal) })
-
-  const counts = useMemo(() => {
-    const c: Record<RiskLevel, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, NONE: 0 }
-    q.data?.forEach((r) => (c[r.risk_level] += 1))
-    return c
-  }, [q.data])
-
-  const filtered = useMemo(() => {
-    const min = RISK_RANK[f.min_risk as RiskLevel] ?? 1
-    const rows = (q.data ?? []).filter((r) => (f.level ? r.risk_level === f.level : RISK_RANK[r.risk_level] >= min))
-    return sortRisks(rows, f.sort)
-  }, [q.data, f.min_risk, f.level, f.sort])
-
-  const pageRows = q.data ? filtered.slice((f.page - 1) * f.page_size, f.page * f.page_size) : undefined
+  // Filtering, sorting and pagination happen server-side; `summary` carries the per-level
+  // counts for the current warehouse/category/search so the cards show the full distribution.
+  const params = {
+    min_risk: f.min_risk,
+    risk_level: f.level,
+    warehouse_id: f.warehouse_id,
+    category: f.category,
+    search: f.search,
+    sort: f.sort.replace(/projected$/, 'projected_stock_at_lead_time'),
+    page: f.page,
+    page_size: f.page_size,
+  }
+  const q = useQuery({
+    queryKey: qk.shortages(params),
+    queryFn: ({ signal }) => api.get<StockRiskPage>('/shortages', params, signal),
+    placeholderData: keepPreviousData,
+  })
+  const counts: Record<RiskLevel, number> = q.data?.summary.by_risk_level ?? { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, NONE: 0 }
 
   const columns: Column<StockRisk>[] = [
     {
@@ -145,7 +143,7 @@ export default function StockRisksPage() {
         description="Items projected to fall below safety stock before a new delivery could arrive."
         actions={
           <>
-            <ExportCsvButton path="/shortages" query={{ min_risk: f.level || f.min_risk, warehouse_id: f.warehouse_id, category: f.category, search: f.search }} />
+            <ExportCsvButton path="/shortages" query={{ min_risk: f.min_risk, risk_level: f.level, warehouse_id: f.warehouse_id, category: f.category, search: f.search, sort: params.sort }} />
             <Button asChild>
               <Link to={`/restocking${f.warehouse_id ? `?warehouse_id=${f.warehouse_id}` : ''}`}>
                 <ClipboardList /> Restocking plan
@@ -226,7 +224,7 @@ export default function StockRisksPage() {
         <DataTable
           caption="Stock risks"
           columns={columns}
-          rows={pageRows}
+          rows={q.data?.items}
           rowKey={(r) => r.inventory_item_id}
           loading={q.isFetching}
           error={q.error}
@@ -254,7 +252,7 @@ export default function StockRisksPage() {
           }
           page={f.page}
           pageSize={f.page_size}
-          total={q.data ? filtered.length : undefined}
+          total={q.data?.total}
           onPageChange={(page) => setF({ page }, { resetPage: false })}
           onPageSizeChange={(page_size) => setF({ page_size })}
         />
@@ -365,7 +363,7 @@ function RiskDetail({ r }: { r: StockRisk }) {
         </Button>
         {r.demand_source !== 'NONE' && (
           <Button variant="outline" asChild>
-            <Link to="/forecasting">Forecasts</Link>
+            <Link to={`/forecasting?product_id=${r.product_id}&warehouse_id=${r.warehouse_id}`}>Forecast</Link>
           </Button>
         )}
       </div>

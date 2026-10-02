@@ -398,3 +398,11 @@ export interface Dashboard {
   warehouse_distribution: Array<{ warehouse_id: number; code: string; name: string; units: number; value: number; low_stock_items: number }>
   category_value: Array<{ group: string; products: number; units: number; cost_value: number; retail_value: number }>
 }
+
+export interface StockRiskPage extends Page<StockRisk> {
+  summary: { total_items: number; by_risk_level: Record<RiskLevel, number> }
+}
+
+export interface RestockPage extends Page<RestockRecommendation> {
+  summary: { items: number; total_units: number; total_estimated_cost: number; critical: number; without_supplier: number }
+}

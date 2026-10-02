@@ -36,7 +36,9 @@ docker compose up --build
 
 On first start the one-shot **`migrate`** service runs `alembic upgrade head`, creates the first admin (`FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`) and — with `SEED_DEMO_DATA=true` (the default in `.env.example`) — generates a year of realistic demo data and forecasts (~40 s). `api` and `worker` only start after it completes successfully; every service has a health check.
 
-**Demo logins** (seeded): `admin@example.com / ChangeMe123!` (admin) and `warehouse@`, `inventory@`, `purchasing@`, `analyst@demo.example` with password `DemoPass123!`.
+**Logins.** The bootstrap admin is `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD` from `.env` (`admin@example.com` / `ChangeMe123!` in `.env.example`). With demo data, one account per role is seeded with password `DemoPass123!`: `admin@`, `inventory@`, `warehouse@`, `purchasing@` and `analyst@demo.example`. The login page offers these one-click demo accounts only when the server reports demo mode (`GET /api/v1/meta`).
+
+**Swagger:** click *Authorize* and enter an email/password (OAuth2 password flow via `POST /auth/token`).
 
 > Behind a TLS-intercepting corporate proxy, image builds need its CA: `docker build --secret id=ca_bundle,src=/path/ca.pem …` (optional BuildKit secret, ignored when absent).
 
@@ -134,13 +136,14 @@ REST under `/api/v1`, fully documented in Swagger (tags, summaries, response mod
 
 | Area | Endpoints |
 |---|---|
-| Auth & users | `POST /auth/login`, `GET /auth/me`, `GET /auth/permissions`, `GET/POST /users`, `PATCH /users/{id}` |
+| Auth & users | `POST /auth/login` (JSON), `POST /auth/token` (OAuth2 form, used by Swagger), `GET /auth/me`, `GET /auth/permissions`, `GET/POST /users`, `PATCH /users/{id}` |
 | Catalog | `/products` (+ `/categories`, `/{id}` with stock per warehouse), `/warehouses` (+ `/summary`), `/suppliers` (+ stats) |
 | Inventory | `GET /inventory`, `GET/PATCH /inventory/{id}`, `GET /inventory/transactions`, `POST /inventory/{receive,issue,adjust,transfer,reserve,release,return}` |
 | Purchasing | `/purchase-orders` CRUD (draft), `POST /{id}/status`, `POST /{id}/receive` |
 | Sales | `GET/POST /sales`, `POST /sales/import` (multipart CSV → job) |
 | Forecasting | `POST /forecasts/run`, `POST /forecasts/run-all`, `GET /forecasts`, `GET /forecasts/item`, `GET /forecasts/{id}` |
-| Planning | `GET /shortages`, `GET /restocking`, `POST /restocking/purchase-orders` |
+| Planning | `GET /shortages`, `GET /restocking` (both paginated + sortable, with a `summary` over all matching rows), `POST /restocking/purchase-orders` |
+| Meta | `GET /meta` (public: version, environment, demo mode, upload limit, forecast interval level) |
 | Reports | `/reports/{dashboard,low-stock,inventory-value,inventory-trend,sales-summary,supplier-performance,purchase-orders,forecast-accuracy,forecast-aggregate}` |
 | Jobs | `GET /jobs`, `GET /jobs/{id}` |
 
@@ -189,10 +192,10 @@ Per product × warehouse (see `app/services/replenishment.py`):
 | `inbound` | ordered − received on open POs (DRAFT…PARTIALLY_RECEIVED) |
 | `inbound_L` | submitted/confirmed PO units expected **within the lead time** (drafts haven't been sent; later deliveries can't prevent this shortage) |
 | `IP` | inventory position: `available + inbound` for recommendations, `available + inbound_L` for risk |
-| `ROP` | reorder point = max(static ROP, `D_L + SS`) |
-| `S` | order-up-to level = `ROP + d × R` (R = review period, default 14 days) |
+| `ROP` | reorder point = max(static ROP, `min_stock`, `D_L + SS`) |
+| `S` | order-up-to level = `ROP + max(d × R, 1)` (R = review period, default 14 days; the +1 floor keeps zero-demand items from being re-recommended once ordered) |
 
-**Risk:** `CRITICAL` if nothing is available or `IP < D_L` (will stock out before any new order can arrive) · `HIGH` if `IP < D_L + SS` (safety stock breached within lead time) · `MEDIUM` if `IP ≤ ROP` · `LOW` if `IP ≤ ROP + d×R` · otherwise `NONE`. **Timing check:** if expected demand until the *next scheduled delivery* exceeds available stock, the item stocks out before that delivery lands, so risk is raised to at least `HIGH` ("expected to run out around Oct 6, before the next delivery on Oct 9") even when the inbound quantity is large. Each item carries days of cover, a projected stock-out date, the next inbound date and a plain-English reason/action.
+**Risk:** `CRITICAL` if nothing is available or `IP < D_L` (will stock out before any new order can arrive) · `HIGH` if `IP < D_L + SS` (safety stock breached within lead time) · `MEDIUM` if `IP ≤ ROP` · `LOW` if `IP ≤ ROP + d×R` · otherwise `NONE`. **Timing check:** if expected demand until the *next scheduled delivery* exceeds available stock, the item stocks out before that delivery lands, so risk is raised to at least `HIGH` ("expected to run out around Oct 6, before the next delivery on Oct 9") even when the inbound quantity is large. `min_stock` is also a hard floor for the inventory *stock status* (separate from risk): available stock at or below `max(safety stock, min_stock)` is shown as `CRITICAL`. Each item carries days of cover, a projected stock-out date, the next inbound date and a plain-English reason/action.
 
 **Recommendation:** when `IP ≤ ROP`, order `ceil(S − IP)`. Because open POs — **including drafts** — are part of `IP`, an item that was already ordered (or drafted from a previous recommendation) is not recommended again. `POST /restocking/purchase-orders` groups selections into one DRAFT PO per supplier × warehouse, atomically.
 

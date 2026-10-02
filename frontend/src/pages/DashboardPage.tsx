@@ -26,7 +26,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { qk } from '@/api/queries'
+import { qk, useMeta } from '@/api/queries'
 import { ChartCard, chartTheme } from '@/components/common/ChartCard'
 import { KpiCard } from '@/components/common/KpiCard'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -35,7 +35,7 @@ import { RISK_COLORS, RiskBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api } from '@/lib/api'
-import type { Dashboard, StockRisk } from '@/lib/types'
+import type { Dashboard, StockRiskPage } from '@/lib/types'
 import { fmt } from '@/lib/utils'
 
 const RISK_LABEL: Record<string, string> = { CRITICAL: 'Critical', HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low', NONE: 'None' }
@@ -43,9 +43,11 @@ const RISK_LABEL: Record<string, string> = { CRITICAL: 'Critical', HIGH: 'High',
 export default function DashboardPage() {
   const dash = useQuery({ queryKey: qk.dashboard, queryFn: () => api.get<Dashboard>('/reports/dashboard') })
   const risks = useQuery({
-    queryKey: qk.shortages({ min_risk: 'HIGH' }),
-    queryFn: () => api.get<StockRisk[]>('/shortages', { min_risk: 'HIGH' }),
+    queryKey: qk.shortages({ min_risk: 'HIGH', page_size: 6 }),
+    queryFn: () => api.get<StockRiskPage>('/shortages', { min_risk: 'HIGH', page_size: 6 }),
   })
+  const meta = useMeta()
+  const intervalLabel = `${Math.round((meta.data?.forecast_interval_level ?? 0.8) * 100)}% interval`
   const d = dash.data
   const k = d?.kpis
 
@@ -80,7 +82,7 @@ export default function DashboardPage() {
               hint={`${k.out_of_stock_items} out of stock`}
               icon={<PackageX />}
               tone={k.out_of_stock_items ? 'danger' : 'warning'}
-              to="/inventory?status=LOW_STOCK"
+              to="/reports?tab=low-stock"
             />
             <KpiCard
               label="Shortage risks"
@@ -118,63 +120,71 @@ export default function DashboardPage() {
 
           <div className="grid gap-6 xl:grid-cols-3">
             <ChartCard className="xl:col-span-2" title="Units sold per day" description="Last 90 days, all warehouses">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={d.sales_trend} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="period" tickFormatter={fmt.shortDate} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={32} />
-                  <YAxis tick={chartTheme.axis} tickLine={false} axisLine={false} width={48} />
-                  <Tooltip
-                    {...chartTheme.tooltip}
-                    labelFormatter={(v) => fmt.date(String(v))}
-                    formatter={(v, _n, item) => [
-                      `${fmt.int(Number(v))} units · ${fmt.money((item.payload as { revenue: number }).revenue)}`,
-                      'Sold',
-                    ]}
-                  />
-                  <Area type="monotone" dataKey="units" stroke="var(--chart-1)" strokeWidth={2} fill="url(#salesFill)" activeDot={{ r: 4 }} />
-                </AreaChart>
-              </ResponsiveContainer>
+              {d.sales_trend.length === 0 ? (
+                <EmptyState title="No sales yet" description="Record or import sales to see the daily trend." />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={d.sales_trend} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="period" tickFormatter={fmt.shortDate} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={32} />
+                    <YAxis tick={chartTheme.axis} tickLine={false} axisLine={false} width={48} />
+                    <Tooltip
+                      {...chartTheme.tooltip}
+                      labelFormatter={(v) => fmt.date(String(v))}
+                      formatter={(v, _n, item) => [
+                        `${fmt.int(Number(v))} units · ${fmt.money((item.payload as { revenue: number }).revenue)}`,
+                        'Sold',
+                      ]}
+                    />
+                    <Area type="monotone" dataKey="units" stroke="var(--chart-1)" strokeWidth={2} fill="url(#salesFill)" activeDot={{ r: 4 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
 
             <ChartCard title="Stock-risk distribution" description="Items by shortage risk level">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={[...d.risk_distribution].reverse()}
-                  layout="vertical"
-                  margin={{ top: 4, right: 36, left: 4, bottom: 0 }}
-                >
-                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tick={chartTheme.axis} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <YAxis
-                    type="category"
-                    dataKey="risk_level"
-                    tickFormatter={(v) => RISK_LABEL[v] ?? v}
-                    tick={chartTheme.axis}
-                    tickLine={false}
-                    axisLine={false}
-                    width={64}
-                  />
-                  <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} formatter={(v) => [`${v} items`, 'Count']} labelFormatter={(v) => `${RISK_LABEL[String(v)]} risk`} />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={22} label={{ position: 'right', fontSize: 12, fill: 'var(--muted-foreground)' }}>
-                    {[...d.risk_distribution].reverse().map((r) => (
-                      <Cell key={r.risk_level} fill={RISK_COLORS[r.risk_level]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              {d.risk_distribution.every((r) => r.count === 0) ? (
+                <EmptyState title="No stocked items" description="Risk levels appear once products have inventory." />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={[...d.risk_distribution].reverse()}
+                    layout="vertical"
+                    margin={{ top: 4, right: 36, left: 4, bottom: 0 }}
+                  >
+                    <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" tick={chartTheme.axis} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <YAxis
+                      type="category"
+                      dataKey="risk_level"
+                      tickFormatter={(v) => RISK_LABEL[v] ?? v}
+                      tick={chartTheme.axis}
+                      tickLine={false}
+                      axisLine={false}
+                      width={64}
+                    />
+                    <Tooltip {...chartTheme.tooltip} cursor={{ fill: 'var(--muted)' }} formatter={(v) => [`${v} items`, 'Count']} labelFormatter={(v) => `${RISK_LABEL[String(v)]} risk`} />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={22} label={{ position: 'right', fontSize: 12, fill: 'var(--muted-foreground)' }}>
+                      {[...d.risk_distribution].reverse().map((r) => (
+                        <Cell key={r.risk_level} fill={RISK_COLORS[r.risk_level]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <ChartCard
               title="Forecasted demand"
-              description="Next 30 days · sum of item forecasts with 80% interval"
+              description={`Next 30 days · sum of item forecasts with ${intervalLabel}`}
               action={
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/forecasting">
@@ -199,7 +209,7 @@ export default function DashboardPage() {
                       labelFormatter={(v) => fmt.date(String(v))}
                       formatter={(v, name) =>
                         name === 'band'
-                          ? [`${fmt.int((v as number[])[0])} – ${fmt.int((v as number[])[1])}`, '80% interval']
+                          ? [`${fmt.int((v as number[])[0])} – ${fmt.int((v as number[])[1])}`, intervalLabel]
                           : [`${fmt.int(Number(v))} units`, 'Forecast']
                       }
                     />
@@ -211,47 +221,55 @@ export default function DashboardPage() {
             </ChartCard>
 
             <ChartCard title="Inventory value" description="End-of-day stock value at cost, last 90 days">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={d.inventory_trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="valueFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--chart-3)" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="var(--chart-3)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="date" tickFormatter={fmt.shortDate} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={32} />
-                  <YAxis tickFormatter={(v) => fmt.moneyCompact(v)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
-                  <Tooltip
-                    {...chartTheme.tooltip}
-                    labelFormatter={(v) => fmt.date(String(v))}
-                    formatter={(v, _n, item) => [`${fmt.money(Number(v))} · ${fmt.int((item.payload as { units: number }).units)} units`, 'Value']}
-                  />
-                  <Area type="monotone" dataKey="value" stroke="var(--chart-3)" strokeWidth={2} fill="url(#valueFill)" activeDot={{ r: 4 }} />
-                </AreaChart>
-              </ResponsiveContainer>
+              {d.inventory_trend.length === 0 ? (
+                <EmptyState title="No stock history" description="Stock value appears after the first inventory movement." />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={d.inventory_trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="valueFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--chart-3)" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="var(--chart-3)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={fmt.shortDate} tick={chartTheme.axis} tickLine={false} axisLine={false} minTickGap={32} />
+                    <YAxis tickFormatter={(v) => fmt.moneyCompact(v)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
+                    <Tooltip
+                      {...chartTheme.tooltip}
+                      labelFormatter={(v) => fmt.date(String(v))}
+                      formatter={(v, _n, item) => [`${fmt.money(Number(v))} · ${fmt.int((item.payload as { units: number }).units)} units`, 'Value']}
+                    />
+                    <Area type="monotone" dataKey="value" stroke="var(--chart-3)" strokeWidth={2} fill="url(#valueFill)" activeDot={{ r: 4 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-5">
             <ChartCard className="xl:col-span-2" title="Stock value by warehouse" description="At cost" height={240}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={d.warehouse_distribution} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="code" tick={chartTheme.axis} tickLine={false} axisLine={false} />
-                  <YAxis tickFormatter={(v) => fmt.moneyCompact(v)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
-                  <Tooltip
-                    {...chartTheme.tooltip}
-                    cursor={{ fill: 'var(--muted)' }}
-                    formatter={(v, _n, item) => {
-                      const p = item.payload as { units: number; low_stock_items: number }
-                      return [`${fmt.money(Number(v))} · ${fmt.int(p.units)} units · ${p.low_stock_items} low`, 'Value']
-                    }}
-                    labelFormatter={(v, payload) => (payload?.[0]?.payload as { name?: string } | undefined)?.name ?? String(v)}
-                  />
-                  <Bar dataKey="value" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={56} />
-                </BarChart>
-              </ResponsiveContainer>
+              {d.warehouse_distribution.length === 0 ? (
+                <EmptyState title="No warehouses" description="Create a warehouse and receive stock to see its value." />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={d.warehouse_distribution} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="code" tick={chartTheme.axis} tickLine={false} axisLine={false} />
+                    <YAxis tickFormatter={(v) => fmt.moneyCompact(v)} tick={chartTheme.axis} tickLine={false} axisLine={false} width={56} />
+                    <Tooltip
+                      {...chartTheme.tooltip}
+                      cursor={{ fill: 'var(--muted)' }}
+                      formatter={(v, _n, item) => {
+                        const p = item.payload as { units: number; low_stock_items: number }
+                        return [`${fmt.money(Number(v))} · ${fmt.int(p.units)} units · ${p.low_stock_items} low`, 'Value']
+                      }}
+                      labelFormatter={(v, payload) => (payload?.[0]?.payload as { name?: string } | undefined)?.name ?? String(v)}
+                    />
+                    <Bar dataKey="value" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={56} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
 
             <Card className="xl:col-span-3">
@@ -275,11 +293,11 @@ export default function DashboardPage() {
                   <ErrorState error={risks.error} onRetry={() => risks.refetch()} />
                 ) : !risks.data ? (
                   <CardsSkeleton count={2} />
-                ) : risks.data.length === 0 ? (
+                ) : risks.data.items.length === 0 ? (
                   <EmptyState title="No high-risk items" description="Stock covers expected demand across all warehouses." />
                 ) : (
                   <ul className="divide-y">
-                    {risks.data.slice(0, 6).map((r) => (
+                    {risks.data.items.map((r) => (
                       <li key={r.inventory_item_id}>
                         <Link to={`/products/${r.product_id}`} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/50">
                           <div className="min-w-0 flex-1">

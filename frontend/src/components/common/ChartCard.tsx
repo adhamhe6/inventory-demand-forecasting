@@ -30,7 +30,13 @@ export function ChartCard({
         {action}
       </CardHeader>
       <CardContent className="flex-1">
-        {loading ? <Skeleton style={{ height }} className="w-full" /> : <div style={{ height }}>{children}</div>}
+        {loading ? (
+          <Skeleton style={{ height }} className="w-full" />
+        ) : (
+          <div role="figure" aria-label={typeof description === 'string' ? `${title}: ${description}` : title} style={{ height }}>
+            {children}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

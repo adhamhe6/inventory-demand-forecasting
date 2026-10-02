@@ -16,13 +16,15 @@ import { fmt } from '@/lib/utils'
 import { DateRangeFilter } from './purchasing/shared'
 import { ImportSalesDialog } from './sales/ImportSalesDialog'
 import { RecordSaleDialog } from './sales/RecordSaleDialog'
+import { LookupError, LookupFailedOption } from './shared/LookupError'
 
 const DEFAULTS = { page: 1, page_size: 25, search: '', product_id: '', warehouse_id: '', date_from: '', date_to: '', sort: '-sold_at' }
 
 export default function SalesPage() {
   const { can } = useAuth()
   const [f, setF] = useUrlState(DEFAULTS)
-  const products = useAllProducts()
+  // Include inactive products so deep links (e.g. from a discontinued product's page) still resolve.
+  const products = useAllProducts({ includeInactive: true })
   const warehouses = useAllWarehouses()
   const [recording, setRecording] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -105,14 +107,17 @@ export default function SalesPage() {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
             <NativeSelect aria-label="Product" className="lg:w-56" value={f.product_id} onChange={(e) => setF({ product_id: e.target.value })}>
               <option value="">All products</option>
+              <LookupFailedOption query={products} />
               {products.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.sku} — {p.name}
+                  {p.is_active ? '' : ' (inactive)'}
                 </option>
               ))}
             </NativeSelect>
             <NativeSelect aria-label="Warehouse" className="lg:w-40" value={f.warehouse_id} onChange={(e) => setF({ warehouse_id: e.target.value })}>
               <option value="">All warehouses</option>
+              <LookupFailedOption query={warehouses} />
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.code}
@@ -121,6 +126,7 @@ export default function SalesPage() {
             </NativeSelect>
           </div>
           <DateRangeFilter from={f.date_from} to={f.date_to} onChange={(p) => setF(p)} labelPrefix="Sold" />
+          <LookupError lookups={{ products, warehouses }} />
           {filtersActive && (
             <Button variant="ghost" size="sm" className="self-start lg:ml-auto lg:self-auto" onClick={clear}>
               <SlidersHorizontal /> Clear filters

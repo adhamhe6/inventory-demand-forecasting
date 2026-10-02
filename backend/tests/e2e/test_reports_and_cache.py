@@ -3,7 +3,7 @@ import pytest
 from app.cache.redis_cache import get_cache
 from app.core.security import Role
 
-from .helpers import ok, setup_master_data
+from .helpers import err, ok, setup_master_data
 
 pytestmark = pytest.mark.e2e
 API = "/api/v1"
@@ -77,3 +77,63 @@ async def test_forecast_job_dedupe_and_job_listing(client, auth) -> None:
     all_job = ok(await client.post(f"{API}/forecasts/run-all", json={"horizon_days": 7}, headers=h), 202)
     done = ok(await client.get(f"{API}/jobs/{all_job['id']}", headers=h))
     assert done["status"] == "SUCCEEDED" and done["result"]["failed"] == 0
+
+
+async def test_shortages_and_restocking_are_paginated_sorted_and_summarised(client, auth) -> None:
+    h = auth()
+    m = await setup_master_data(client, h)
+    ids = []
+    for i in range(3):  # three items at different stock levels, all below min_stock
+        p = ok(
+            await client.post(
+                f"{API}/products",
+                json={
+                    "sku": f"PG-{i}",
+                    "name": f"Paged {i}",
+                    "cost": "2.00",
+                    "price": "3.00",
+                    "min_stock": 50,
+                    "supplier_id": m["supplier"]["id"],
+                },
+                headers=h,
+            ),
+            201,
+        )
+        ok(
+            await client.post(
+                f"{API}/inventory/receive",
+                json={"product_id": p["id"], "warehouse_id": m["wa"]["id"], "quantity": 10 * (i + 1)},
+                headers=h,
+            )
+        )
+        ids.append(p["id"])
+    recs = ok(
+        await client.get(
+            f"{API}/restocking", params={"page_size": 2, "sort": "-recommended_quantity"}, headers=h
+        )
+    )
+    assert recs["total"] == 3 and recs["pages"] == 2 and len(recs["items"]) == 2
+    qtys = [r["recommended_quantity"] for r in recs["items"]]
+    assert qtys == sorted(qtys, reverse=True)
+    assert recs["summary"]["items"] == 3 and recs["summary"]["total_estimated_cost"] > 0
+    page2 = ok(
+        await client.get(
+            f"{API}/restocking",
+            params={"page_size": 2, "page": 2, "sort": "-recommended_quantity"},
+            headers=h,
+        )
+    )
+    assert len(page2["items"]) == 1 and page2["items"][0]["inventory_item_id"] not in {
+        r["inventory_item_id"] for r in recs["items"]
+    }
+    risks = ok(
+        await client.get(
+            f"{API}/shortages", params={"min_risk": "NONE", "sort": "available_quantity"}, headers=h
+        )
+    )
+    avail = [r["available_quantity"] for r in risks["items"]]
+    assert avail == sorted(avail)
+    assert (
+        sum(risks["summary"]["by_risk_level"].values()) == risks["summary"]["total_items"] == risks["total"]
+    )
+    err(await client.get(f"{API}/restocking", params={"sort": "password"}, headers=h), 400, "INVALID_SORT")

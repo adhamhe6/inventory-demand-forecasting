@@ -316,7 +316,7 @@ export default function PurchaseOrderDetailPage() {
                   <TableCell className="hidden xl:table-cell">
                     <MiniProgress value={l.quantity_received} max={l.quantity_ordered} label={`${l.sku}: ${l.quantity_received} of ${l.quantity_ordered} received`} />
                   </TableCell>
-                  <TableCell className="hidden text-right tabular lg:table-cell">{fmt.money(l.unit_cost)}</TableCell>
+                  <TableCell className="hidden text-right tabular xl:table-cell">{fmt.money(l.unit_cost)}</TableCell>
                   <TableCell className="text-right font-medium tabular">{fmt.money(l.line_total)}</TableCell>
                 </TableRow>
               ))}

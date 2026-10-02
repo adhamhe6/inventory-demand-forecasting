@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.db.models.enums import JobStatus, JobType
+from app.schemas.common import Page
 
 
 class JobRead(BaseModel):
@@ -186,3 +187,24 @@ class CreatedPurchaseOrders(BaseModel):
 
 
 CreatePOsFromRecommendations.model_rebuild()
+
+
+class RiskSummary(BaseModel):
+    total_items: int = Field(description="Items matching the filters, at any risk level")
+    by_risk_level: dict[RiskLevel, int]
+
+
+class StockRiskPage(Page[StockRiskRead]):
+    summary: RiskSummary
+
+
+class RestockSummary(BaseModel):
+    items: int
+    total_units: int
+    total_estimated_cost: float
+    critical: int
+    without_supplier: int = Field(description="Recommendations whose product has no preferred supplier")
+
+
+class RestockPage(Page[RestockRecommendation]):
+    summary: RestockSummary

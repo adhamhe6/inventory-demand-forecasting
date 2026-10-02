@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
 from app.api.dependencies import CurrentUser, PageDep, SessionDep, require
@@ -39,11 +40,28 @@ async def login(body: LoginRequest, request: Request, session: SessionDep) -> To
     account limit) – so one client cannot spray many accounts. Successful logins are never
     counted, so many legitimate users behind one NAT are unaffected.
     """
+    return await _issue_token(str(body.email), body.password, request, session)
+
+
+@router.post(
+    "/auth/token",
+    response_model=TokenResponse,
+    summary="OAuth2 password flow (used by Swagger UI's Authorize button)",
+    responses={401: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
+)
+async def token(
+    form: Annotated[OAuth2PasswordRequestForm, Depends()], request: Request, session: SessionDep
+) -> TokenResponse:
+    """Form-encoded equivalent of `/auth/login` (`username` = email). Same rate limits."""
+    return await _issue_token(form.username, form.password, request, session)
+
+
+async def _issue_token(email: str, password: str, request: Request, session: SessionDep) -> TokenResponse:
     settings = get_settings()
     limiter = RateLimiter(get_redis())
     window = settings.login_rate_limit_window_seconds
     buckets = (
-        (f"login:acct:{body.email.lower()}", settings.login_rate_limit_attempts),
+        (f"login:acct:{email.lower()}", settings.login_rate_limit_attempts),
         (f"login:ip:{_client_ip(request)}", settings.login_rate_limit_attempts * 3),
     )
     for bucket, limit in buckets:
@@ -54,14 +72,14 @@ async def login(body: LoginRequest, request: Request, session: SessionDep) -> To
                 details={"retry_after_seconds": retry_after},
             )
     try:
-        user = await UserService(session).authenticate(body.email, body.password)
+        user = await UserService(session).authenticate(email, password)
     except AuthenticationError:
         for bucket, limit in buckets:
             await limiter.hit(bucket, limit, window)
         raise
     await limiter.reset(buckets[0][0])
-    token, expires_in = create_access_token(user.id, user.role.value)
-    return TokenResponse(access_token=token, expires_in=expires_in, user=UserRead.model_validate(user))
+    access_token, expires_in = create_access_token(user.id, user.role.value)
+    return TokenResponse(access_token=access_token, expires_in=expires_in, user=UserRead.model_validate(user))
 
 
 @router.get("/auth/me", response_model=UserRead, summary="Current user", responses=ERROR_RESPONSES)

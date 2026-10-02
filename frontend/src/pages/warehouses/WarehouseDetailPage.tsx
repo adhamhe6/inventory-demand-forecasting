@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   PackagePlus,
   Pencil,
+  RefreshCw,
   SlidersHorizontal,
   Warehouse as WarehouseIcon,
 } from 'lucide-react'
@@ -21,7 +22,7 @@ import { qk, usePaged } from '@/api/queries'
 import { type Column, DataTable } from '@/components/common/DataTable'
 import { KpiCard } from '@/components/common/KpiCard'
 import { SearchInput } from '@/components/common/SearchInput'
-import { CardsSkeleton, EmptyState, ErrorState } from '@/components/common/States'
+import { CardsSkeleton, EmptyState, ErrorState, InlineError } from '@/components/common/States'
 import { StockStatusBadge } from '@/components/common/StatusBadge'
 import { type StockOp, StockOperationDialog } from '@/components/inventory/StockOperationDialog'
 import { TransactionsTable } from '@/components/inventory/TransactionsTable'
@@ -157,6 +158,15 @@ export default function WarehouseDetailPage() {
 
       {!s && summary.isLoading ? (
         <CardsSkeleton count={4} />
+      ) : !s && summary.error ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <InlineError error={summary.error} />
+          </div>
+          <Button variant="outline" size="sm" className="self-start sm:self-auto" loading={summary.isFetching} onClick={() => summary.refetch()}>
+            {!summary.isFetching && <RefreshCw />} Retry summary
+          </Button>
+        </div>
       ) : s ? (
         <section aria-label="Warehouse summary" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard label="Units on hand" value={fmt.int(s.total_units)} hint={`${fmt.int(s.reserved_units)} reserved`} icon={<Boxes />} />

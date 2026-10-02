@@ -1,8 +1,9 @@
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, ChevronRight, LogOut, Menu, Moon, PackageSearch, Settings as SettingsIcon, Sun, X } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { qk } from '@/api/queries'
+import { qk, useMeta } from '@/api/queries'
 import { RiskBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,7 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
-import type { StockRisk } from '@/lib/types'
+import type { StockRiskPage } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 import { ALL_NAV, NAV_SECTIONS } from './nav'
 
@@ -97,12 +98,12 @@ function Breadcrumbs() {
 function Notifications() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
-  const { data } = useQuery({
-    queryKey: qk.shortages({ min_risk: 'HIGH' }),
-    queryFn: () => api.get<StockRisk[]>('/shortages', { min_risk: 'HIGH' }),
+  const { data, isPending, isError, refetch } = useQuery({
+    queryKey: qk.shortages({ min_risk: 'HIGH', page_size: 8 }),
+    queryFn: () => api.get<StockRiskPage>('/shortages', { min_risk: 'HIGH', page_size: 8 }),
     refetchInterval: 120_000,
   })
-  const count = data?.length ?? 0
+  const count = data?.total ?? 0
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -121,8 +122,17 @@ function Notifications() {
           <span className="text-xs text-muted-foreground">High & critical risks</span>
         </div>
         <ul className="max-h-80 overflow-y-auto">
-          {count === 0 && <li className="px-4 py-8 text-center text-sm text-muted-foreground">No high-risk items. 🎉</li>}
-          {data?.slice(0, 8).map((r) => (
+          {isPending && <li className="px-4 py-8 text-center text-sm text-muted-foreground">Loading alerts…</li>}
+          {isError && (
+            <li className="px-4 py-6 text-center text-sm text-destructive">
+              Could not load stock alerts.{' '}
+              <button type="button" className="font-medium underline" onClick={() => refetch()}>
+                Retry
+              </button>
+            </li>
+          )}
+          {data && count === 0 && <li className="px-4 py-8 text-center text-sm text-muted-foreground">No high-risk items.</li>}
+          {data?.items.map((r) => (
             <li key={r.inventory_item_id}>
               <button
                 type="button"
@@ -204,6 +214,15 @@ function UserMenu() {
   )
 }
 
+function VersionFooter() {
+  const { data } = useMeta()
+  return (
+    <p className="px-6 py-4 text-[11px] text-sidebar-foreground/40">
+      {data ? `v${data.version} · ${data.environment}` : 'StockSense'}
+    </p>
+  )
+}
+
 function ThemeToggle() {
   const { theme, toggle } = useTheme()
   return (
@@ -227,23 +246,30 @@ export function AppShell({ children }: { children?: ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-sidebar lg:flex">
         <Brand />
         <SidebarNav />
-        <p className="px-6 py-4 text-[11px] text-sidebar-foreground/40">v1.0 · FastAPI · PostgreSQL · Redis</p>
+        <VersionFooter />
       </aside>
-      {/* Mobile drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-sidebar shadow-xl">
+      {/* Mobile drawer: Radix Dialog gives focus trapping, Escape to close and focus restore. */}
+      <DialogPrimitive.Root open={mobileOpen} onOpenChange={setMobileOpen}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 lg:hidden" />
+          <DialogPrimitive.Content
+            aria-describedby={undefined}
+            className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col bg-sidebar shadow-xl focus:outline-none lg:hidden"
+          >
+            <DialogPrimitive.Title className="sr-only">Navigation</DialogPrimitive.Title>
             <div className="flex items-center justify-between pr-3">
               <Brand />
-              <Button variant="ghost" size="icon" className="text-sidebar-foreground hover:bg-sidebar-accent" onClick={() => setMobileOpen(false)} aria-label="Close navigation">
-                <X />
-              </Button>
+              <DialogPrimitive.Close asChild>
+                <Button variant="ghost" size="icon" className="text-sidebar-foreground hover:bg-sidebar-accent" aria-label="Close navigation">
+                  <X />
+                </Button>
+              </DialogPrimitive.Close>
             </div>
             <SidebarNav onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
-      )}
+            <VersionFooter />
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
       <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/85 px-4 backdrop-blur sm:px-6">
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
           <Menu />

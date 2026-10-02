@@ -23,7 +23,7 @@ import { fmt } from '@/lib/utils'
 import { ChartLegend, ForecastChart } from './forecasting/ForecastChart'
 import { CandidatesCard, DemandProfileCard, ModelAccuracyCard } from './forecasting/ForecastInsights'
 import { LatestForecastsTable, ModelMixCard, RunAllCard } from './forecasting/LatestForecasts'
-import { FORECAST_DEPENDENT_KEYS } from './forecasting/lib'
+import { FORECAST_DEPENDENT_KEYS, useIntervalPct } from './forecasting/lib'
 import { HISTORY_WINDOWS, HORIZONS, MODEL_CHOICES, MODEL_META, type ModelChoice, modelLabel } from './forecasting/meta'
 import { isActive, jobDuration, useTrackedJob } from './forecasting/useTrackedJob'
 
@@ -107,6 +107,7 @@ export default function ForecastingPage() {
   const warehouse = warehouses.data?.find((w) => w.id === warehouseId)
   const data = item.data
   const fc = data?.forecast ?? null
+  const levelPct = useIntervalPct(fc?.details?.interval?.level)
   const hasHistory = !!data && data.history.some((h) => h.quantity > 0)
   const recent = useMemo(() => {
     const h = data?.history.slice(-28) ?? []
@@ -295,7 +296,7 @@ export default function ForecastingPage() {
                 </CardTitle>
                 <CardDescription>
                   Daily units sold over the last {s.history} days
-                  {fc ? `, then the ${fc.horizon_days}-day forecast with its 80% prediction interval.` : '.'}
+                  {fc ? `, then the ${fc.horizon_days}-day forecast with its ${levelPct == null ? '' : `${levelPct}% `}prediction interval.` : '.'}
                 </CardDescription>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-3">
@@ -325,9 +326,9 @@ export default function ForecastingPage() {
                 />
               ) : (
                 <>
-                  <ChartLegend showMa={s.ma === 1} hasForecast={!!fc} />
+                  <ChartLegend showMa={s.ma === 1} hasForecast={!!fc} levelPct={levelPct} />
                   <div className={item.isFetching ? 'opacity-70 transition-opacity' : undefined}>
-                    <ForecastChart data={data} showMa={s.ma === 1} />
+                    <ForecastChart data={data} showMa={s.ma === 1} levelPct={levelPct} />
                   </div>
                   {fc && fc.horizon_days !== s.horizon && (
                     <p className="text-xs text-muted-foreground">

@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { api, onUnauthorized, tokenStore } from './api'
+import { ApiError, api, onUnauthorized, tokenStore } from './api'
 import { type Permission, roleCan } from './permissions'
 import type { TokenResponse, User } from './types'
 
@@ -41,7 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api
       .get<User>('/auth/me')
       .then((u) => !cancelled && setUser(u))
-      .catch(() => !cancelled && tokenStore.set(null))
+      .catch((e: unknown) => {
+        if (cancelled) return
+        // A 401 already logged out via onUnauthorized. Anything else (network, 5xx) says nothing about
+        // the token's validity, so keep it and tell the user instead of silently signing them out.
+        if (e instanceof ApiError && e.status === 401) return
+        setSessionMessage('Could not reach the server to restore your session. Reload the page to retry, or sign in again.')
+      })
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true

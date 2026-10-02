@@ -15,8 +15,8 @@ Definitions (per product × warehouse)
   confirmed POs expected within the lead time (drafts haven't been sent to anyone).
 * ``IP``  – inventory position = available + inbound (recommendations);
   risk uses available + inbound_L.
-* ``ROP`` – reorder point = max(static product/warehouse ROP, D_L + SS).
-* ``S``   – order-up-to level = ROP + d × R, where R is the review period (cover until the
+* ``ROP`` – reorder point = max(static product/warehouse ROP, product minimum stock, D_L + SS).
+* ``S``   – order-up-to level = ROP + max(d × R, 1), where R is the review period (cover until the
   next planning cycle).
 
 Risk levels
@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis_cache import Cache, CacheDomain
 from app.core.config import get_settings
-from app.core.errors import BusinessRuleError
+from app.core.errors import AppError, BusinessRuleError
 from app.db.models import (
     EntityStatus,
     ForecastPoint,
@@ -140,6 +140,7 @@ class ReplenishmentService:
                     InventoryItem.available_quantity,
                     func.coalesce(InventoryItem.safety_stock, Product.safety_stock).label("ss"),
                     func.coalesce(InventoryItem.reorder_point, Product.reorder_point).label("static_rop"),
+                    Product.min_stock,
                     Product.sku,
                     Product.name,
                     Product.category,
@@ -190,9 +191,11 @@ class ReplenishmentService:
             # Overdue deliveries haven't arrived: assume "today" at the earliest.
             arrivals = [max(exp, today) for _, exp in committed.get(key, []) if exp is not None]
             next_inbound = min(arrivals) if arrivals else None
-            rop = max(float(r.static_rop), d_l + ss)
+            # The minimum stock threshold is a hard floor for the reorder point.
+            rop = max(float(r.static_rop), float(r.min_stock), d_l + ss)
             review_demand = d * self.review_days
-            order_up_to = rop + review_demand
+            # Strictly above ROP, so an order placed now clears the trigger even with no demand.
+            order_up_to = rop + max(review_demand, 1.0)
             risk = classify(available, inb_lead, d_l, ss, rop, review_demand, d)
             gap = False
             if d > 0 and next_inbound is not None:
@@ -200,7 +203,7 @@ class ReplenishmentService:
                 gap = available < demand_until_delivery
                 if gap and RISK_ORDER[risk] > RISK_ORDER[RiskLevel.HIGH]:
                     risk = RiskLevel.HIGH
-            qty = recommended_quantity(ip, rop, order_up_to) if (d > 0 or r.static_rop > 0) else 0
+            qty = recommended_quantity(ip, rop, order_up_to) if (d > 0 or rop > 0) else 0
             days_cover = round(available / d, 1) if d > 0 else None
             stockout = today + timedelta(days=math.floor(available / d)) if d > 0 else None
             cost = float(r.cost)
@@ -309,6 +312,30 @@ class ReplenishmentService:
             reason = f"Expected to run out around {a['stockout_date']}, before the next delivery on {a['next_inbound_date']}"
             action = "Expedite the open purchase order or transfer stock from another warehouse"
         return {**a, "reason": reason, "recommended_action": action}
+
+    @staticmethod
+    def sort_rows(rows: list[dict[str, Any]], sort: str, allowed: set[str]) -> list[dict[str, Any]]:
+        """Stable multi-key sort (``risk,-estimated_cost``); ``risk`` sorts by severity.
+
+        Unknown fields are rejected (allow-list), and ``None`` values always sort last.
+        """
+        out = list(rows)
+        for part in reversed([p.strip() for p in sort.split(",") if p.strip()]):
+            desc = part.startswith("-")
+            name = part.lstrip("-+")
+            if name not in allowed:
+                raise AppError(
+                    f"Cannot sort by '{name}'", code="INVALID_SORT", details={"allowed": sorted(allowed)}
+                )
+
+            def key(row: dict[str, Any], name: str = name) -> Any:
+                return RISK_ORDER[RiskLevel(row["risk_level"])] if name == "risk" else row.get(name)
+
+            present = [r for r in out if key(r) is not None]
+            missing = [r for r in out if key(r) is None]
+            present.sort(key=key, reverse=desc)
+            out = present + missing
+        return out
 
     async def risks(
         self,

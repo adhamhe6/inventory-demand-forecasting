@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, status
@@ -31,14 +32,14 @@ from app.schemas.forecasting import (
     ForecastRunSummary,
     ForecastWithHistory,
     JobRead,
-    RestockRecommendation,
+    RestockPage,
     RiskLevel,
-    StockRiskRead,
+    StockRiskPage,
 )
 from app.services.catalog import CatalogService
 from app.services.forecasting import ForecastService
 from app.services.jobs import JobService, job_to_dict
-from app.services.replenishment import ReplenishmentService
+from app.services.replenishment import RISK_ORDER, ReplenishmentService
 
 forecasts = APIRouter(prefix="/forecasts", tags=["Demand Forecasting"])
 shortages = APIRouter(prefix="/shortages", tags=["Stock Risk"])
@@ -179,33 +180,90 @@ RISK_CSV = [
 ]
 
 
+RISK_SORTS = {
+    "risk",
+    "days_of_cover",
+    "projected_stock_at_lead_time",
+    "available_quantity",
+    "demand_during_lead_time",
+    "sku",
+    "warehouse_code",
+    "stockout_date",
+    "avg_daily_demand",
+}
+
+
 @shortages.get(
-    "", response_model=list[StockRiskRead], summary="Stock-shortage risk analysis", responses=ERROR_RESPONSES
+    "", response_model=StockRiskPage, summary="Stock-shortage risk analysis", responses=ERROR_RESPONSES
 )
 async def list_shortages(
     _: CurrentUser,
     session: SessionDep,
     cache: CacheDep,
+    page: PageDep,
     warehouse_id: Annotated[int | None, Query(gt=0)] = None,
     min_risk: Annotated[RiskLevel, Query(description="Lowest risk level to include")] = RiskLevel.LOW,
+    risk_level: Annotated[RiskLevel | None, Query(description="Only this exact risk level")] = None,
     category: Annotated[str | None, Query(max_length=100)] = None,
     search: SearchQuery = None,
+    sort: SortQuery = "risk,days_of_cover",
     format: Annotated[str, Query(pattern="^(json|csv)$")] = "json",
 ) -> Any:
     """Computed from live stock, open POs and the latest stored forecasts (see README →
-    *Restocking algorithm*). Sorted by severity, then days of cover."""
-    rows = await ReplenishmentService(session, cache).risks(
-        warehouse_id=warehouse_id, min_level=min_risk, category=category, search=search
+    *Shortage detection & restocking algorithm*). Default order: severity, then days of cover.
+    Sortable by risk, days_of_cover, projected_stock_at_lead_time, available_quantity,
+    demand_during_lead_time, avg_daily_demand, stockout_date, sku, warehouse_code.
+    `summary` counts every risk level for the current filters (ignoring `min_risk`)."""
+    svc = ReplenishmentService(session, cache)
+    every = await svc.risks(
+        warehouse_id=warehouse_id, min_level=RiskLevel.NONE, category=category, search=search
+    )
+    threshold = RISK_ORDER[min_risk]
+    rows = svc.sort_rows(
+        [
+            r
+            for r in every
+            if (
+                r["risk_level"] == risk_level.value
+                if risk_level
+                else RISK_ORDER[RiskLevel(r["risk_level"])] <= threshold
+            )
+        ],
+        sort or "risk",
+        RISK_SORTS,
     )
     if format == "csv":
         return maybe_csv(rows, "stock-risk", RISK_CSV)
-    return rows
+    counts = Counter(r["risk_level"] for r in every)
+    result = Page.build(
+        rows[page.offset : page.offset + page.page_size], len(rows), page.page, page.page_size
+    )
+    return {
+        **result.model_dump(),
+        "summary": {
+            "total_items": len(every),
+            "by_risk_level": {lvl.value: counts.get(lvl.value, 0) for lvl in RiskLevel},
+        },
+    }
 
 
 # --------------------------------------------------------------------------- restocking
+RESTOCK_SORTS = {
+    "risk",
+    "estimated_cost",
+    "recommended_quantity",
+    "available_quantity",
+    "sku",
+    "warehouse_code",
+    "supplier_name",
+    "avg_daily_demand",
+    "lead_time_days",
+}
+
+
 @restocking.get(
     "",
-    response_model=list[RestockRecommendation],
+    response_model=RestockPage,
     summary="Restocking recommendations",
     responses=ERROR_RESPONSES,
 )
@@ -213,16 +271,21 @@ async def list_recommendations(
     _: CurrentUser,
     session: SessionDep,
     cache: CacheDep,
+    page: PageDep,
     warehouse_id: Annotated[int | None, Query(gt=0)] = None,
     supplier_id: Annotated[int | None, Query(gt=0)] = None,
     search: SearchQuery = None,
+    sort: SortQuery = "risk,-estimated_cost",
     format: Annotated[str, Query(pattern="^(json|csv)$")] = "json",
 ) -> Any:
     """Items whose inventory position (available + open PO quantity, drafts included) is at
     or below the dynamic reorder point. Open POs are subtracted, so items already on order are
-    not recommended twice."""
-    rows = await ReplenishmentService(session, cache).recommendations(
-        warehouse_id=warehouse_id, supplier_id=supplier_id, search=search
+    not recommended twice. `summary` totals all matching recommendations (not just this page)."""
+    svc = ReplenishmentService(session, cache)
+    rows = svc.sort_rows(
+        await svc.recommendations(warehouse_id=warehouse_id, supplier_id=supplier_id, search=search),
+        sort or "risk",
+        RESTOCK_SORTS,
     )
     if format == "csv":
         return maybe_csv(
@@ -244,7 +307,19 @@ async def list_recommendations(
                 "risk_level",
             ],
         )
-    return rows
+    result = Page.build(
+        rows[page.offset : page.offset + page.page_size], len(rows), page.page, page.page_size
+    )
+    return {
+        **result.model_dump(),
+        "summary": {
+            "items": len(rows),
+            "total_units": sum(r["recommended_quantity"] for r in rows),
+            "total_estimated_cost": round(sum(r["estimated_cost"] for r in rows), 2),
+            "critical": sum(1 for r in rows if r["risk_level"] == RiskLevel.CRITICAL.value),
+            "without_supplier": sum(1 for r in rows if r["supplier_id"] is None),
+        },
+    }
 
 
 @restocking.post(

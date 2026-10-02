@@ -140,14 +140,14 @@ async def test_workflow_2_sales_history_to_forecast_to_restocking(client, auth) 
     assert listed["items"][0]["id"] == run_id
 
     # 4. Stock risk analysis uses the stored forecast.
-    risks = ok(await client.get(f"{API}/shortages", params={"min_risk": "HIGH"}, headers=analyst))
+    risks = ok(await client.get(f"{API}/shortages", params={"min_risk": "HIGH"}, headers=analyst))["items"]
     risk = next(r for r in risks if r["product_id"] == pid and r["warehouse_id"] == wid)
     assert risk["demand_source"] == "FORECAST" and risk["forecast_run_id"] == run_id
     assert risk["risk_level"] == "CRITICAL"  # 60 units < ~90 units of demand during the 7-day lead time
     assert risk["demand_during_lead_time"] > risk["available_quantity"]
 
     # 5. A restocking recommendation is generated...
-    recs = ok(await client.get(f"{API}/restocking", headers=buyer))
+    recs = ok(await client.get(f"{API}/restocking", headers=buyer))["items"]
     rec = next(r for r in recs if r["product_id"] == pid)
     assert rec["recommended_quantity"] > 0 and rec["supplier_id"] == m["supplier"]["id"]
     expected = rec["order_up_to_level"] - rec["inventory_position"]
@@ -165,11 +165,11 @@ async def test_workflow_2_sales_history_to_forecast_to_restocking(client, auth) 
         201,
     )
     assert len(created["purchase_order_ids"]) == 1
-    recs_after = ok(await client.get(f"{API}/restocking", headers=buyer))
+    recs_after = ok(await client.get(f"{API}/restocking", headers=buyer))["items"]
     assert not [r for r in recs_after if r["product_id"] == pid]
     risk_after = next(
         r
-        for r in ok(await client.get(f"{API}/shortages", params={"min_risk": "NONE"}, headers=buyer))
+        for r in ok(await client.get(f"{API}/shortages", params={"min_risk": "NONE"}, headers=buyer))["items"]
         if r["product_id"] == pid
     )
     assert risk_after["inbound_quantity"] == rec["recommended_quantity"]
@@ -294,11 +294,57 @@ async def test_open_po_arriving_after_stockout_is_still_a_risk(client, auth) -> 
         ok(await client.post(f"{API}/purchase-orders/{po['id']}/status", json={"status": s}, headers=h))
     risk = next(
         r
-        for r in ok(await client.get(f"{API}/shortages", params={"min_risk": "NONE"}, headers=h))
+        for r in ok(await client.get(f"{API}/shortages", params={"min_risk": "NONE"}, headers=h))["items"]
         if r["product_id"] == pid and r["warehouse_id"] == wid
     )
     assert risk["stockout_before_inbound"] is True
     assert risk["risk_level"] in {"HIGH", "CRITICAL"}
     assert "before the next delivery" in risk["reason"]
     # ...but no duplicate reorder is recommended: the inbound covers future demand.
-    assert not [r for r in ok(await client.get(f"{API}/restocking", headers=h)) if r["product_id"] == pid]
+    assert not [
+        r for r in ok(await client.get(f"{API}/restocking", headers=h))["items"] if r["product_id"] == pid
+    ]
+
+
+async def test_min_stock_is_a_floor_for_status_and_reorder_point(client, auth) -> None:
+    """The product's minimum stock threshold makes stock CRITICAL and triggers reordering
+    even when there is no demand history and safety stock / reorder point are lower."""
+    from app.core.security import Role
+
+    h = auth(Role.ADMIN)
+    m = await setup_master_data(client, h)
+    pid, wid = m["product"]["id"], m["wa"]["id"]
+    ok(
+        await client.patch(
+            f"{API}/products/{pid}", json={"min_stock": 80, "safety_stock": 5, "reorder_point": 10}, headers=h
+        )
+    )
+    ok(
+        await client.post(
+            f"{API}/inventory/receive",
+            json={"product_id": pid, "warehouse_id": wid, "quantity": 60},
+            headers=h,
+        )
+    )
+    item = ok(
+        await client.get(f"{API}/inventory", params={"product_id": pid, "warehouse_id": wid}, headers=h)
+    )
+    assert item["items"][0]["status"] == "CRITICAL"  # 60 <= min_stock 80
+    rec = next(
+        r for r in ok(await client.get(f"{API}/restocking", headers=h))["items"] if r["product_id"] == pid
+    )
+    assert rec["reorder_point"] == 80 and rec["recommended_quantity"] == 21  # up to ROP+1 with no demand
+    # Ordering the recommendation clears it: no churn of 1-unit follow-up recommendations.
+    ok(
+        await client.post(
+            f"{API}/restocking/purchase-orders",
+            json={
+                "items": [{"product_id": pid, "warehouse_id": wid, "quantity": rec["recommended_quantity"]}]
+            },
+            headers=h,
+        ),
+        201,
+    )
+    assert not [
+        r for r in ok(await client.get(f"{API}/restocking", headers=h))["items"] if r["product_id"] == pid
+    ]

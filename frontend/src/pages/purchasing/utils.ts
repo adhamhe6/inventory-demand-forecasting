@@ -50,6 +50,9 @@ export const PO_RELATED_KEYS = [['purchase-orders'], ['reports'], ['dashboard'],
 
 export interface POReport {
   by_status: Array<{ status: POStatus; count: number; value: number; outstanding_units: number }>
+  /** Total overdue POs; `overdue` is capped at `overdue_list_limit` (oldest first). */
+  overdue_count: number
+  overdue_list_limit: number
   overdue: Array<{ id: number; po_number: string; supplier_name: string; expected_delivery_date: string; status: POStatus; days_overdue: number }>
 }
 

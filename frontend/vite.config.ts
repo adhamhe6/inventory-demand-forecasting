@@ -12,6 +12,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: process.env.VITE_API_PROXY ?? 'http://localhost:8000', changeOrigin: true },
+      // API docs served by FastAPI (same paths nginx proxies in Docker).
+      '^/(docs|redoc|openapi\\.json)': { target: process.env.VITE_API_PROXY ?? 'http://localhost:8000', changeOrigin: true },
     },
   },
   build: {

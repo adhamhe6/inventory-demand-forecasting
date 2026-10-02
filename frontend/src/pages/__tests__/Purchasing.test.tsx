@@ -7,14 +7,13 @@ import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ApiError } from '@/lib/api'
-import type { Product, PurchaseOrder, RestockRecommendation, StockRisk, Supplier, Warehouse } from '@/lib/types'
+import type { Product, PurchaseOrder, RestockRecommendation, Supplier, Warehouse } from '@/lib/types'
 import { poSchema } from '../purchasing/poForm'
 import PurchaseOrderCreatePage from '../purchasing/PurchaseOrderCreatePage'
 import { ReceiveDialog } from '../purchasing/ReceiveDialog'
 import { addDaysIso, todayIso } from '../purchasing/utils'
 import RestockingPage from '../RestockingPage'
 import { buildRestockPlan, qtyError } from '../risk/restockUtils'
-import { sortRisks } from '../risk/riskUtils'
 import { ImportSalesDialog } from '../sales/ImportSalesDialog'
 import { RecordSaleDialog } from '../sales/RecordSaleDialog'
 
@@ -328,7 +327,11 @@ describe('RestockingPage', () => {
   it('requires a supplier for unassigned products and posts selected items with edited quantities', async () => {
     const user = userEvent.setup()
     apiMock.get.mockImplementation(async (path: string) => {
-      if (path === '/restocking') return [rec(1, {}), rec(2, { supplier_id: null, supplier_name: null, risk_level: 'HIGH' })]
+      if (path === '/restocking')
+        return {
+          ...page([rec(1, {}), rec(2, { supplier_id: null, supplier_name: null, risk_level: 'HIGH' })]),
+          summary: { items: 2, total_units: 70, total_estimated_cost: 140, critical: 1, without_supplier: 1 },
+        }
       if (path === '/suppliers') return page([supplier])
       if (path === '/warehouses') return page([warehouse])
       return page([])
@@ -337,6 +340,9 @@ describe('RestockingPage', () => {
     wrap(<RestockingPage />, '/restocking')
 
     await screen.findByLabelText('Select SKU-1 for WH-NORTH')
+    // Server-side sort + pagination parameters are sent; totals come from the server summary.
+    expect(apiMock.get).toHaveBeenCalledWith('/restocking', expect.objectContaining({ sort: 'risk', page: 1, page_size: 50 }), expect.anything())
+    expect(screen.getByText('$140.00')).toBeInTheDocument()
     const box2 = screen.getByLabelText('Select SKU-2 for WH-NORTH')
     expect(box2).toBeDisabled()
     // Supplier picker (rendered in the product cell and the supplier column) unlocks the row.
@@ -376,12 +382,5 @@ describe('pure helpers', () => {
     const plan = buildRestockPlan(rows, { qtyOf: (r) => String(r.recommended_quantity), supplierOf: (r) => r.supplier_id, supplierName: () => 'x' })
     expect(plan.groups).toHaveLength(2)
     expect(plan.total).toBe(210)
-  })
-
-  it('sorts risks by severity then days of cover', () => {
-    const r = (id: number, level: StockRisk['risk_level'], cover: number | null) => ({ inventory_item_id: id, risk_level: level, days_of_cover: cover, projected_stock_at_lead_time: 0 }) as StockRisk
-    const sorted = sortRisks([r(1, 'LOW', 2), r(2, 'CRITICAL', 5), r(3, 'CRITICAL', 1), r(4, 'HIGH', null)], 'risk')
-    expect(sorted.map((x) => x.inventory_item_id)).toEqual([3, 2, 4, 1])
-    expect(sortRisks(sorted, 'days_of_cover').map((x) => x.inventory_item_id)).toEqual([3, 1, 2, 4])
   })
 })

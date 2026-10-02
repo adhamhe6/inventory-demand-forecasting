@@ -14,13 +14,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import type { ForecastWithHistory } from '@/lib/types'
 import { fmt } from '@/lib/utils'
+import { intervalLabel, useIntervalPct } from '../forecasting/lib'
 import { buildForecastSeries } from './forecastSeries'
 
 const HISTORY_DAYS = 90
 
 function Swatch({ kind, label }: { kind: 'solid' | 'dashed' | 'band'; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <li className="inline-flex items-center gap-1.5">
       {kind === 'band' ? (
         <span className="h-2.5 w-4 rounded-sm bg-[var(--chart-2)] opacity-25" aria-hidden />
       ) : (
@@ -37,7 +38,7 @@ function Swatch({ kind, label }: { kind: 'solid' | 'dashed' | 'band'; label: str
         </svg>
       )}
       {label}
-    </span>
+    </li>
   )
 }
 
@@ -58,8 +59,7 @@ export function ProductForecastPanel({ productId, unit, warehouses, warehouseId,
   })
   const series = useMemo(() => buildForecastSeries(q.data), [q.data])
   const forecast = q.data?.forecast ?? null
-  const level = forecast?.details?.interval?.level
-  const levelPct = level == null ? 80 : level <= 1 ? Math.round(level * 100) : Math.round(level)
+  const levelPct = useIntervalPct(forecast?.details?.interval?.level)
   const forecastStart = forecast?.points[0]?.date
   const m = forecast?.metrics ?? {}
   const forecastingLink = `/forecasting?product_id=${productId}${warehouseId ? `&warehouse_id=${warehouseId}` : ''}`
@@ -108,11 +108,11 @@ export function ProductForecastPanel({ productId, unit, warehouses, warehouseId,
             />
           ) : (
             <>
-              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Chart legend">
+              <ul role="list" className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Chart legend">
                 <Swatch kind="solid" label="Actual demand" />
                 {forecast && <Swatch kind="dashed" label="Forecast" />}
-                {forecast && <Swatch kind="band" label={`${levelPct}% interval`} />}
-              </div>
+                {forecast && <Swatch kind="band" label={intervalLabel(levelPct)} />}
+              </ul>
               <div className="h-[300px]" role="img" aria-label={`Daily demand chart for the selected warehouse${forecast ? ' with forecast' : ''}`}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={series} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
@@ -125,7 +125,7 @@ export function ProductForecastPanel({ productId, unit, warehouses, warehouseId,
                       formatter={(v, name) => {
                         if (name === 'band') {
                           const [lo, hi] = v as unknown as [number, number]
-                          return [`${fmt.num(lo)} – ${fmt.num(hi)}`, `${levelPct}% interval`]
+                          return [`${fmt.num(lo)} – ${fmt.num(hi)}`, intervalLabel(levelPct)]
                         }
                         return [`${fmt.num(Number(v))} ${unit}`, name === 'actual' ? 'Actual' : 'Forecast']
                       }}
@@ -155,7 +155,9 @@ export function ProductForecastPanel({ productId, unit, warehouses, warehouseId,
           <CardDescription>Latest run for this warehouse</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          {q.isLoading ? (
+          {q.error ? (
+            <ErrorState error={q.error} onRetry={() => q.refetch()} className="py-6" />
+          ) : q.isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : !forecast ? (
             <div className="grid gap-3 text-sm">

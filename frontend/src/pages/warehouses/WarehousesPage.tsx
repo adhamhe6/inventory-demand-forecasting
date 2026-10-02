@@ -109,7 +109,7 @@ export default function WarehousesPage() {
               hint="At or below reorder point"
               icon={<AlertTriangle />}
               tone={totals.low ? 'warning' : 'success'}
-              to="/inventory"
+              to="/reports?tab=low-stock"
             />
           </section>
 
@@ -200,7 +200,7 @@ function WarehouseCard({ w, canManage, onEdit }: { w: WarehouseSummary; canManag
       <div className="mt-auto flex items-center justify-between gap-2 px-5 py-3">
         {w.low_stock_items > 0 ? (
           <Link
-            to={`/warehouses/${w.id}?tab=inventory`}
+            to={`/reports?tab=low-stock&ls_wh=${w.id}`}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-700 hover:underline dark:text-amber-400"
           >
             <AlertTriangle className="size-4" aria-hidden />

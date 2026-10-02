@@ -652,6 +652,7 @@ async def seed(*, reset: bool = False, run_forecasts: bool = True, rng_seed: int
 
         # ---------------------------------------------------------------- users
         demo_users = [
+            ("admin@demo.example", "Avery Admin (demo)", Role.ADMIN),
             ("warehouse@demo.example", "Wendy Warehouse", Role.WAREHOUSE_MANAGER),
             ("inventory@demo.example", "Ivan Inventory", Role.INVENTORY_MANAGER),
             ("purchasing@demo.example", "Paula Purchasing", Role.PURCHASING_MANAGER),

@@ -12,6 +12,7 @@ import { emptyLine, lineTotal, type POFormValues } from './poForm'
 /**
  * Dynamic purchase-order line items (react-hook-form useFieldArray).
  * Products supplied by the chosen supplier are listed first; any active product can be ordered.
+ * Inactive products passed in are shown as "(inactive)" and are only selectable on the line that already uses them.
  */
 export function LineItemsEditor({
   form,
@@ -43,9 +44,11 @@ export function LineItemsEditor({
     })
   }, [products, getValues, setValue])
 
+  // Inactive products only appear so existing lines keep rendering; they can't be picked for a new line.
   const option = (p: Product, current: number) => (
-    <option key={p.id} value={p.id} disabled={chosen.has(p.id) && p.id !== current}>
+    <option key={p.id} value={p.id} disabled={p.id !== current && (chosen.has(p.id) || !p.is_active)}>
       {p.sku} — {p.name}
+      {p.is_active ? '' : ' (inactive)'}
     </option>
   )
 

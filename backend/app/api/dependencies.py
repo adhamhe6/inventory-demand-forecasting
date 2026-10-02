@@ -6,10 +6,11 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, Header, Query, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis_cache import Cache, get_cache
+from app.core.config import get_settings
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.logging import user_id_ctx
 from app.core.security import Permission, decode_access_token, has_permission
@@ -19,7 +20,13 @@ from app.services.common import PageParams
 from app.services.jobs import JobDispatcher
 
 SessionDep = Annotated[AsyncSession, Depends(session_scope)]
-_bearer = HTTPBearer(auto_error=False, description="JWT access token from POST /api/v1/auth/login")
+# OAuth2 password flow so Swagger UI's "Authorize" button can log in with email + password;
+# any client may also send the JWT from POST /auth/login as "Authorization: Bearer <token>".
+_oauth2 = OAuth2PasswordBearer(
+    tokenUrl=f"{get_settings().api_prefix}/auth/token",
+    auto_error=False,
+    description="Log in with your email (as username) and password.",
+)
 
 
 def cache_dep() -> Cache:
@@ -31,11 +38,11 @@ CacheDep = Annotated[Cache, Depends(cache_dep)]
 
 async def get_current_user(
     session: SessionDep,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    token: Annotated[str | None, Depends(_oauth2)],
 ) -> User:
-    if credentials is None or credentials.scheme.lower() != "bearer":
+    if not token:
         raise AuthenticationError("Not authenticated")
-    payload = decode_access_token(credentials.credentials)
+    payload = decode_access_token(token)
     try:
         user_id = int(payload["sub"])
     except (KeyError, ValueError) as exc:

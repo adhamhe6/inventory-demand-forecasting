@@ -32,6 +32,7 @@ from app.services.purchasing import OPEN_STATUSES
 from app.services.replenishment import ReplenishmentService
 
 Granularity = Literal["day", "week", "month"]
+OVERDUE_LIST_LIMIT = 50
 
 
 def _day_start(d: date) -> datetime:
@@ -481,6 +482,11 @@ class ReportService:
             for r in rows
         }
         today = datetime.now(UTC).date()
+        overdue_filter = (
+            PurchaseOrder.status.in_(OPEN_STATUSES[1:]),
+            PurchaseOrder.expected_delivery_date < today,
+        )
+        overdue_count = await self.session.scalar(select(func.count()).where(*overdue_filter))
         overdue = (
             await self.session.execute(
                 select(
@@ -491,11 +497,9 @@ class ReportService:
                     PurchaseOrder.status,
                 )
                 .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
-                .where(
-                    PurchaseOrder.status.in_(OPEN_STATUSES[1:]), PurchaseOrder.expected_delivery_date < today
-                )
+                .where(*overdue_filter)
                 .order_by(PurchaseOrder.expected_delivery_date)
-                .limit(50)
+                .limit(OVERDUE_LIST_LIMIT)
             )
         ).all()
         return {
@@ -506,6 +510,8 @@ class ReportService:
                 }
                 for s in PurchaseOrderStatus
             ],
+            "overdue_count": int(overdue_count or 0),
+            "overdue_list_limit": OVERDUE_LIST_LIMIT,
             "overdue": [
                 {
                     "id": r[0],

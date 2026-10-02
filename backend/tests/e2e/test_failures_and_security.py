@@ -418,3 +418,35 @@ async def test_successful_logins_do_not_consume_the_rate_limit(client, users, mo
                 f"{API}/auth/login", json={"email": "admin@test.example", "password": "Password123!"}
             )
         )
+
+
+async def test_oauth2_token_endpoint_for_swagger(client, users) -> None:
+    r = ok(
+        await client.post(
+            f"{API}/auth/token", data={"username": "admin@test.example", "password": "Password123!"}
+        )
+    )
+    me = ok(await client.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {r['access_token']}"}))
+    assert me["role"] == "ADMIN"
+    err(
+        await client.post(f"{API}/auth/token", data={"username": "admin@test.example", "password": "bad"}),
+        401,
+    )
+    spec = ok(await client.get("/openapi.json"))
+    scheme = next(iter(spec["components"]["securitySchemes"].values()))
+    assert scheme["type"] == "oauth2" and scheme["flows"]["password"]["tokenUrl"] == "/api/v1/auth/token"
+
+
+async def test_meta_endpoint_is_public_and_non_sensitive(client) -> None:
+    meta = ok(await client.get(f"{API}/meta"))
+    assert set(meta) == {
+        "app_name",
+        "version",
+        "environment",
+        "demo_mode",
+        "max_import_file_mb",
+        "forecast_interval_level",
+        "restock_review_period_days",
+    }
+    assert meta["forecast_interval_level"] == 0.8 and meta["max_import_file_mb"] > 0
+    assert "secret" not in str(meta).lower() and "password" not in str(meta).lower()

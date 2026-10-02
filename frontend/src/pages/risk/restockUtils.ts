@@ -1,5 +1,4 @@
-import type { RestockRecommendation, RiskLevel } from '@/lib/types'
-import { RISK_RANK } from '../purchasing/utils'
+import type { RestockRecommendation } from '@/lib/types'
 
 /** Validation message for an editable order quantity, or null when valid. */
 export function qtyError(raw: string): string | null {
@@ -9,20 +8,6 @@ export function qtyError(raw: string): string | null {
   if (n <= 0) return 'Must be > 0'
   if (n > 1_000_000) return 'Too large'
   return null
-}
-
-export function sortRecommendations(rows: RestockRecommendation[], sort: string): RestockRecommendation[] {
-  const desc = sort.startsWith('-')
-  const key = sort.replace(/^-/, '')
-  const rank = (l: RiskLevel) => RISK_RANK[l]
-  const cmp: Record<string, (a: RestockRecommendation, b: RestockRecommendation) => number> = {
-    risk: (a, b) => rank(b.risk_level) - rank(a.risk_level) || b.estimated_cost - a.estimated_cost,
-    estimated_cost: (a, b) => a.estimated_cost - b.estimated_cost,
-    recommended_quantity: (a, b) => a.recommended_quantity - b.recommended_quantity,
-    sku: (a, b) => a.sku.localeCompare(b.sku) || a.warehouse_code.localeCompare(b.warehouse_code),
-  }
-  const fn = cmp[key] ?? cmp.risk
-  return [...rows].sort((a, b) => (desc ? -fn(a, b) : fn(a, b)) || a.inventory_item_id - b.inventory_item_id)
 }
 
 export interface RestockGroup {
