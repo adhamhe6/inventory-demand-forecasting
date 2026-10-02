@@ -39,7 +39,8 @@ def parse_sold_at(raw: str) -> datetime:
     raw = raw.strip()
     try:
         if len(raw) == 10:
-            return datetime.combine(date.fromisoformat(raw), time(12, 0), tzinfo=UTC)
+            # Date-only rows mean "that day": use start of day so rows dated today are valid.
+            return datetime.combine(date.fromisoformat(raw), time.min, tzinfo=UTC)
         value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"invalid sold_at '{raw}' (expected ISO date/datetime)") from exc

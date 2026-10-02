@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
+from pydantic import BaseModel
 
 from app.api.dependencies import CurrentUser, PageDep, SessionDep, require
 from app.cache.redis_cache import RateLimiter, get_redis
 from app.core.config import get_settings
 from app.core.errors import RateLimitedError
-from app.core.security import ROLE_PERMISSIONS, Permission, create_access_token
+from app.core.security import ROLE_PERMISSIONS, Permission, Role, create_access_token
 from app.db.models import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserCreate, UserRead, UserUpdate
 from app.schemas.common import CONFLICT, ERROR_RESPONSES, NOT_FOUND, ErrorResponse, Page
@@ -64,9 +65,21 @@ async def me(user: CurrentUser) -> User:
     return user
 
 
-@router.get("/auth/permissions", summary="Permissions of the current user's role", responses=ERROR_RESPONSES)
-async def my_permissions(user: CurrentUser) -> dict[str, list[str]]:
-    return {"role": [user.role.value], "permissions": sorted(p.value for p in ROLE_PERMISSIONS[user.role])}
+class PermissionsResponse(BaseModel):
+    role: Role
+    permissions: list[str]
+
+
+@router.get(
+    "/auth/permissions",
+    response_model=PermissionsResponse,
+    summary="Permissions of the current user's role",
+    responses=ERROR_RESPONSES,
+)
+async def my_permissions(user: CurrentUser) -> PermissionsResponse:
+    return PermissionsResponse(
+        role=user.role, permissions=sorted(p.value for p in ROLE_PERMISSIONS[user.role])
+    )
 
 
 AdminDep = Annotated[User, Depends(require(Permission.MANAGE_USERS))]

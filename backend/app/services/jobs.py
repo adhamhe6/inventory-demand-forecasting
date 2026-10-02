@@ -99,7 +99,13 @@ class JobService:
         return job
 
     async def list_jobs(
-        self, page: PageParams, *, type_: JobType | None, status: JobStatus | None, user_id: int | None
+        self,
+        page: PageParams,
+        *,
+        type_: JobType | None,
+        status: JobStatus | None,
+        user_id: int | None,
+        sort: str | None = None,
     ) -> tuple[list[Job], int]:
         stmt = select(Job)
         if type_:
@@ -108,7 +114,12 @@ class JobService:
             stmt = stmt.where(Job.status == status)
         if user_id:
             stmt = stmt.where(Job.created_by_id == user_id)
-        stmt = apply_sort(stmt, None, {"id": Job.id, "created_at": Job.created_at}, "-created_at")
+        stmt = apply_sort(
+            stmt,
+            sort,
+            {"id": Job.id, "created_at": Job.created_at, "type": Job.type, "status": Job.status},
+            "-created_at",
+        )
         rows, total = await paginate(self.session, stmt, page)
         return [r[0] for r in rows], total
 

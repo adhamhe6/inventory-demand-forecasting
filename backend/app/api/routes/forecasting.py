@@ -274,7 +274,9 @@ async def list_jobs(
     status_: Annotated[JobStatus | None, Query(alias="status")] = None,
     sort: SortQuery = None,
 ) -> Page[JobRead]:
-    items, total = await JobService(session).list_jobs(page, type_=type, status=status_, user_id=None)
+    items, total = await JobService(session).list_jobs(
+        page, type_=type, status=status_, user_id=None, sort=sort
+    )
     return Page.build(
         [JobRead.model_validate(job_to_dict(j)) for j in items], total, page.page, page.page_size
     )

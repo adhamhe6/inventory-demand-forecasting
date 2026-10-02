@@ -380,12 +380,12 @@ class InventoryService:
         actor_id: int | None,
         create: bool,
     ) -> dict[str, Any]:
-        await self.catalog.ensure_active(product_id, warehouse_id)
+        product, warehouse = await self.catalog.ensure_active(product_id, warehouse_id)
         items = await self.lock_items([(product_id, warehouse_id)], create=create)
         item = items.get((product_id, warehouse_id))
         if item is None:
             raise InsufficientStockError(
-                f"No stock of product {product_id} in warehouse {warehouse_id}",
+                f"No stock of {product.sku} in warehouse {warehouse.code}",
                 details={"requested": quantity, "available": 0},
             )
         tx = self.apply_change(
@@ -560,7 +560,7 @@ class InventoryService:
         note: str | None,
         actor_id: int | None,
     ) -> dict[str, Any]:
-        await self.catalog.ensure_active(product_id, from_warehouse_id)
+        product, source_wh = await self.catalog.ensure_active(product_id, from_warehouse_id)
         await self.catalog.ensure_active(product_id, to_warehouse_id)
         # Make sure the destination row exists (no lock), then lock both rows in id order.
         await self.ensure_items([(product_id, to_warehouse_id)])
@@ -571,7 +571,7 @@ class InventoryService:
         dest = items[(product_id, to_warehouse_id)]
         if source is None:
             raise InsufficientStockError(
-                "No stock of this product in the source warehouse",
+                f"No stock of {product.sku} in warehouse {source_wh.code}",
                 details={"requested": quantity, "available": 0},
             )
         group = uuid.uuid4()

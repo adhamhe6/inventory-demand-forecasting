@@ -252,20 +252,51 @@ async def test_open_po_arriving_after_stockout_is_still_a_risk(client, auth) -> 
     h = auth(Role.ADMIN)
     m = await setup_master_data(client, h)
     pid, wid = m["product"]["id"], m["wa"]["id"]
-    ok(await client.post(f"{API}/inventory/receive", json={"product_id": pid, "warehouse_id": wid, "quantity": 30}, headers=h))
+    ok(
+        await client.post(
+            f"{API}/inventory/receive",
+            json={"product_id": pid, "warehouse_id": wid, "quantity": 30},
+            headers=h,
+        )
+    )
     today = datetime.now(UTC).date()
     for i in range(1, 61):  # 10 units/day
-        ok(await client.post(f"{API}/sales", json={"product_id": pid, "warehouse_id": wid, "quantity": 10,
-                                                    "order_reference": f"H{i}", "issue_stock": False,
-                                                    "sold_at": f"{today - timedelta(days=i)}T12:00:00Z"}, headers=h), 201)
+        ok(
+            await client.post(
+                f"{API}/sales",
+                json={
+                    "product_id": pid,
+                    "warehouse_id": wid,
+                    "quantity": 10,
+                    "order_reference": f"H{i}",
+                    "issue_stock": False,
+                    "sold_at": f"{today - timedelta(days=i)}T12:00:00Z",
+                },
+                headers=h,
+            ),
+            201,
+        )
     # Large PO, confirmed, but only due in 6 days; 30 units last ~3 days.
-    po = ok(await client.post(f"{API}/purchase-orders", json={
-        "supplier_id": m["supplier"]["id"], "warehouse_id": wid, "expected_delivery_date": str(today + timedelta(days=6)),
-        "lines": [{"product_id": pid, "quantity_ordered": 1000}]}, headers=h), 201)
+    po = ok(
+        await client.post(
+            f"{API}/purchase-orders",
+            json={
+                "supplier_id": m["supplier"]["id"],
+                "warehouse_id": wid,
+                "expected_delivery_date": str(today + timedelta(days=6)),
+                "lines": [{"product_id": pid, "quantity_ordered": 1000}],
+            },
+            headers=h,
+        ),
+        201,
+    )
     for s in ("SUBMITTED", "CONFIRMED"):
         ok(await client.post(f"{API}/purchase-orders/{po['id']}/status", json={"status": s}, headers=h))
-    risk = next(r for r in ok(await client.get(f"{API}/shortages", params={"min_risk": "NONE"}, headers=h))
-                if r["product_id"] == pid and r["warehouse_id"] == wid)
+    risk = next(
+        r
+        for r in ok(await client.get(f"{API}/shortages", params={"min_risk": "NONE"}, headers=h))
+        if r["product_id"] == pid and r["warehouse_id"] == wid
+    )
     assert risk["stockout_before_inbound"] is True
     assert risk["risk_level"] in {"HIGH", "CRITICAL"}
     assert "before the next delivery" in risk["reason"]

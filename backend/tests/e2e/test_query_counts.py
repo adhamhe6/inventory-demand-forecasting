@@ -20,7 +20,7 @@ API = "/api/v1"
 def count_queries() -> Iterator[list[str]]:
     statements: list[str] = []
 
-    def before(conn, cursor, statement, params, context, executemany) -> None:  # noqa: ANN001
+    def before(conn, cursor, statement, params, context, executemany) -> None:
         statements.append(statement)
 
     engine = get_engine().sync_engine
@@ -41,15 +41,27 @@ async def add_rows(n: int, offset: int) -> None:
             p = Product(sku=f"P{offset}-{i}", name="p", cost=Decimal(1), price=Decimal(2), supplier_id=sup.id)
             s.add(p)
             await s.flush()
-            s.add(PurchaseOrder(po_number=f"PO-{offset}-{i}", supplier_id=sup.id, warehouse_id=wh.id,
-                                lines=[PurchaseOrderLine(product_id=p.id, quantity_ordered=5, unit_cost=Decimal(1))]))
+            s.add(
+                PurchaseOrder(
+                    po_number=f"PO-{offset}-{i}",
+                    supplier_id=sup.id,
+                    warehouse_id=wh.id,
+                    lines=[PurchaseOrderLine(product_id=p.id, quantity_ordered=5, unit_cost=Decimal(1))],
+                )
+            )
         await s.commit()
 
 
 @pytest.mark.parametrize(
     "path",
-    ["/products?page_size=100", "/purchase-orders?page_size=100", "/inventory?page_size=100",
-     "/forecasts?page_size=100", "/restocking", "/shortages?min_risk=NONE"],
+    [
+        "/products?page_size=100",
+        "/purchase-orders?page_size=100",
+        "/inventory?page_size=100",
+        "/forecasts?page_size=100",
+        "/restocking",
+        "/shortages?min_risk=NONE",
+    ],
 )
 async def test_query_count_is_independent_of_row_count(client, auth, path: str) -> None:
     h = auth()

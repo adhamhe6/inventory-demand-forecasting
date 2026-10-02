@@ -38,26 +38,45 @@ async def startup(ctx: dict[str, Any]) -> None:
     logger.info("worker started")
 
 
-async def reap_stale_jobs(ctx: dict[str, Any]) -> None:
-    """Fail jobs stuck in RUNNING longer than the job timeout (their worker died).
+ORPHAN_GRACE_SECONDS = 60
 
-    ARQ kills jobs at ``job_timeout``, so anything RUNNING beyond it can never finish. Using
-    the timeout (not "all RUNNING jobs") keeps this safe with several worker replicas.
+
+async def reap_stale_jobs(ctx: dict[str, Any]) -> None:
+    """Fail RUNNING jobs whose worker is gone, so the UI never shows a job stuck forever.
+
+    A job is orphaned when ARQ no longer holds its in-progress marker
+    (``arq:in-progress:<job id>``, kept alive by the executing worker) or when it has exceeded
+    the job timeout. Checking the marker rather than "all RUNNING jobs" keeps this safe with
+    several worker replicas.
     """
-    cutoff = datetime.now(UTC) - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60)
+    now = datetime.now(UTC)
     async with ctx["sessionmaker"]() as session:
-        res = await session.execute(
-            update(Job)
-            .where(Job.status == JobStatus.RUNNING, Job.started_at < cutoff)
-            .values(
-                status=JobStatus.FAILED,
-                error="Job timed out or its worker stopped",
-                finished_at=datetime.now(UTC),
+        running = (
+            await session.execute(
+                select(Job.id, Job.started_at).where(
+                    Job.status == JobStatus.RUNNING,
+                    Job.started_at < now - timedelta(seconds=ORPHAN_GRACE_SECONDS),
+                )
             )
-        )
-        await session.commit()
-    if res.rowcount:
-        logger.warning("marked stale jobs as failed", extra={"count": res.rowcount})
+        ).all()
+        orphaned = []
+        for job_id, started_at in running:
+            timed_out = started_at < now - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60)
+            alive = await ctx["redis"].exists(f"arq:in-progress:{job_id}")
+            if timed_out or not alive:
+                orphaned.append(job_id)
+        if orphaned:
+            await session.execute(
+                update(Job)
+                .where(Job.id.in_(orphaned), Job.status == JobStatus.RUNNING)
+                .values(
+                    status=JobStatus.FAILED,
+                    error="The worker stopped while this job was running; please retry",
+                    finished_at=now,
+                )
+            )
+            await session.commit()
+            logger.warning("marked orphaned jobs as failed", extra={"job_ids": orphaned})
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -94,14 +113,15 @@ async def nightly_forecast(ctx: dict[str, Any]) -> None:
         )
         session.add(job)
         await session.commit()
-    await execute_job(job.id, ctx["sessionmaker"], ctx["cache"])
+    # Enqueue through ARQ (not inline) so the job gets an in-progress marker like any other.
+    await ctx["redis"].enqueue_job("run_job", job.id, _job_id=job.id)
 
 
 class WorkerSettings:
     functions = [run_job]
     cron_jobs = [
         cron(nightly_forecast, hour={settings.nightly_forecast_hour_utc}, minute={0}, run_at_startup=False),
-        cron(reap_stale_jobs, minute=set(range(0, 60, 10)), run_at_startup=False),
+        cron(reap_stale_jobs, minute=set(range(0, 60, 2)), run_at_startup=False),
     ]
     on_startup = startup
     on_shutdown = shutdown
