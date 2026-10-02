@@ -55,6 +55,21 @@ The CSV import streams the upload to disk in 1 MB chunks and inserts in 1,000-ro
 (`INSERT … ON CONFLICT DO NOTHING RETURNING id`), so memory stays flat regardless of file size.
 The seed uses PostgreSQL `COPY` for ~100k rows in a few seconds.
 
+Measured on the Docker stack (2026-10-02): a 200,000-row / 12.3 MB CSV was imported through
+`POST /sales/import` by the worker in **51 s** (all rows inserted, 0 invalid), worker memory
+peaking at **~188 MiB**; re-importing the same rows inserts 0 and reports them as duplicates.
+After the import (250k sales rows) `ANALYZE` + `EXPLAIN ANALYZE` of the hot paths:
+
+| Query | Plan | Time |
+|---|---|---|
+| Daily history for one product × warehouse (forecast input) | Bitmap Index Scan `ix_sales_product_wh_sold_at` | 8.9 ms |
+| Latest 25 sales of a product | Index Scan Backward `ix_sales_sold_at` | 0.6 ms |
+| 28-day demand per item (fallback demand rate) | Bitmap Index Scan `ix_sales_sold_at` | 1.5 ms |
+| Latest 25 ledger rows of an item | Index Scan Backward `ix_inventory_transactions_product_wh_created` | 0.2 ms |
+| Sales in the last 30 days (dashboard KPI) | Index Only Scan `ix_sales_sold_at` | 1.2 ms |
+
+`GET /reports/dashboard` answered in 111 ms uncached right after the import.
+
 ## Concurrency
 
 Stock operations take row locks in a single statement ordered by id. Tests run 20 concurrent
