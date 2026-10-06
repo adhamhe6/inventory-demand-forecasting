@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, ChevronRight, LogOut, Menu, Moon, PackageSearch, Settings as SettingsIcon, Sun, X } from 'lucide-react'
+import { Bell, ChevronRight, LogOut, Menu, Moon, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon, Sun, X } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { qk, useMeta } from '@/api/queries'
@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip } from '@/components/ui/tooltip'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
@@ -22,31 +23,47 @@ import type { StockRiskPage } from '@/lib/types'
 import { cn, fmt } from '@/lib/utils'
 import { ALL_NAV, NAV_SECTIONS } from './nav'
 
-function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarNav({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   return (
-    <nav aria-label="Main" className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-      {NAV_SECTIONS.map((section) => (
+    <nav aria-label="Main" className={cn('scrollbar-on-dark flex-1 overflow-y-auto overflow-x-hidden py-4', collapsed ? 'space-y-3 px-2' : 'space-y-6 px-3')}>
+      {NAV_SECTIONS.map((section, i) => (
         <div key={section.title}>
-          <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">{section.title}</p>
+          {/* Collapsed: the title stays available to screen readers; a hairline separates sections. */}
+          <p className={cn('mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50', collapsed && 'sr-only')}>{section.title}</p>
+          {collapsed && i > 0 && <div className="mx-3 mb-3 h-px bg-sidebar-foreground/10" aria-hidden />}
           <ul className="space-y-0.5">
-            {section.items.map((item) => (
-              <li key={item.to}>
+            {section.items.map((item) => {
+              const link = (
                 <NavLink
                   to={item.to}
                   end={item.to === '/'}
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-white',
+                      'flex items-center gap-3 whitespace-nowrap rounded-lg py-2 text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-white',
+                      collapsed ? 'justify-center px-0' : 'px-3',
                       isActive && 'bg-sidebar-accent text-white shadow-sm',
                     )
                   }
                 >
                   <item.icon className="size-4 shrink-0" aria-hidden />
-                  {item.label}
+                  <span className={cn(collapsed && 'sr-only')}>{item.label}</span>
                 </NavLink>
-              </li>
-            ))}
+              )
+              return (
+                <li key={item.to}>
+                  {collapsed ? (
+                    // Wrapped: the tooltip trigger merges className as a string, which would clobber
+                    // NavLink's className function (active styling).
+                    <Tooltip content={item.label} side="right">
+                      <div>{link}</div>
+                    </Tooltip>
+                  ) : (
+                    link
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </div>
       ))}
@@ -54,13 +71,17 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
-function Brand() {
+function Brand({ collapsed = false }: { collapsed?: boolean }) {
   return (
-    <Link to="/" className="flex items-center gap-2.5 px-6 py-5 text-white">
-      <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow">
+    <Link
+      to="/"
+      aria-label={collapsed ? 'StockSense home' : undefined}
+      className={cn('flex items-center gap-2.5 whitespace-nowrap py-5 text-white', collapsed ? 'justify-center px-0' : 'px-6')}
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow">
         <PackageSearch className="size-4.5" aria-hidden />
       </span>
-      <span className="leading-tight">
+      <span className={cn('leading-tight', collapsed && 'hidden')}>
         <span className="block text-[15px] font-semibold tracking-tight">StockSense</span>
         <span className="block text-[11px] text-sidebar-foreground/60">Inventory & Forecasting</span>
       </span>
@@ -214,10 +235,11 @@ function UserMenu() {
   )
 }
 
-function VersionFooter() {
+function VersionFooter({ collapsed = false }: { collapsed?: boolean }) {
   const { data } = useMeta()
+  if (collapsed) return null
   return (
-    <p className="px-6 py-4 text-[11px] text-sidebar-foreground/40">
+    <p className="whitespace-nowrap px-6 py-4 text-[11px] text-sidebar-foreground/40">
       {data ? `v${data.version} · ${data.environment}` : 'StockSense'}
     </p>
   )
@@ -232,21 +254,48 @@ function ThemeToggle() {
   )
 }
 
+const SIDEBAR_KEY = 'stocksense.sidebar-collapsed'
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export function AppShell({ children }: { children?: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  // Desktop only: the sidebar collapses to an icon rail to give the content more room.
+  const [collapsed, setCollapsed] = useState(readCollapsed)
   const { pathname } = useLocation()
   useEffect(() => setMobileOpen(false), [pathname])
+  const toggleCollapsed = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, c ? '0' : '1')
+      } catch {
+        /* storage unavailable: the choice lasts for this page only */
+      }
+      return !c
+    })
 
   return (
-    <div className="min-h-dvh lg:pl-64">
+    <div className={cn('min-h-dvh transition-[padding] duration-200 ease-out motion-reduce:transition-none', collapsed ? 'lg:pl-[4.5rem]' : 'lg:pl-64')}>
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-card focus:px-3 focus:py-2 focus:shadow">
         Skip to content
       </a>
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-sidebar lg:flex">
-        <Brand />
-        <SidebarNav />
-        <VersionFooter />
+      <aside
+        id="app-sidebar"
+        className={cn(
+          'fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden bg-sidebar transition-[width] duration-200 ease-out motion-reduce:transition-none lg:flex',
+          collapsed ? 'w-[4.5rem]' : 'w-64',
+        )}
+      >
+        <Brand collapsed={collapsed} />
+        <SidebarNav collapsed={collapsed} />
+        <VersionFooter collapsed={collapsed} />
       </aside>
       {/* Mobile drawer: Radix Dialog gives focus trapping, Escape to close and focus restore. */}
       <DialogPrimitive.Root open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -274,6 +323,19 @@ export function AppShell({ children }: { children?: ReactNode }) {
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
           <Menu />
         </Button>
+        <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden lg:inline-flex"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-controls="app-sidebar"
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          </Button>
+        </Tooltip>
         <Breadcrumbs />
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />

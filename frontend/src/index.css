@@ -35,6 +35,10 @@
   --chart-4: #eda100;
   --chart-5: #e87ba4;
   --radius: 0.625rem;
+  /* Scrollbar thumb (translucent foreground, so it sits quietly on any surface). */
+  --scrollbar-thumb: oklch(0.21 0.03 265 / 0.2);
+  --scrollbar-thumb-hover: oklch(0.21 0.03 265 / 0.38);
+  color-scheme: light;
 }
 
 .dark {
@@ -63,6 +67,17 @@
   --chart-3: #199e70;
   --chart-4: #c98500;
   --chart-5: #d55181;
+  --scrollbar-thumb: oklch(0.95 0.005 255 / 0.16);
+  --scrollbar-thumb-hover: oklch(0.95 0.005 255 / 0.32);
+  /* Native controls (select option lists, date pickers, form scrollbars) follow the theme. */
+  color-scheme: dark;
+}
+
+/* The sidebar is dark in both themes, so its scrollbar always uses the light-on-dark thumb. */
+.scrollbar-on-dark {
+  --scrollbar-thumb: oklch(0.95 0.005 255 / 0.18);
+  --scrollbar-thumb-hover: oklch(0.95 0.005 255 / 0.34);
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -115,6 +130,66 @@
   }
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-ring;
+  }
+}
+
+/*
+ * Scrollbars: one system for every scroll container (vertical and horizontal alike).
+ * A 10px hit area with the thumb drawn inset (transparent border + padding-box clip), so it reads
+ * as a slim ~4px rounded bar but stays easy to grab; it thickens slightly on hover. No arrow
+ * buttons, transparent track. Blink/WebKit use the pseudo-elements; Firefox the standard props.
+ */
+@layer base {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    min-height: 32px;
+    min-width: 32px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+    border-width: 2px;
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
+  }
+
+  /*
+   * Native <select> option lists. Their popup is drawn by the browser; without explicit colours the
+   * page's light text colour lands on a light popup in dark mode (options invisible until hovered).
+   */
+  select option,
+  select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+  select option:checked {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+  select option:disabled {
+    color: var(--muted-foreground);
   }
 }
 
